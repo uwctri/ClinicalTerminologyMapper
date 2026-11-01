@@ -1,0 +1,142 @@
+{
+    "name": "Clinical Terminology Mapper",
+    "description": "Harmonizes REDCap fields with standardized clinical ontologies (HL7 FHIR R4/R5, US Core, mCODE, SDOH, RxNorm, and LOINC). Validates multiple-choice options, prevents EHR/CDIS adjudication errors, and standardizes custom project fields.",
+    "namespace": "UWMadison\\ClinicalTerminologyMapper",
+    "authors": [
+        {
+            "name": "Adam Nunez",
+            "email": "Adam.Nunez@ctri.wisc.edu",
+            "institution": "UW Madison - Center for Tobacco Research and Intervention"
+        }
+    ],
+    "framework-version": 17,
+    "auth-ajax-actions": [
+        "get_mapped_fields",
+        "get_project_fields",
+        "add_custom_field",
+        "remove_custom_field",
+        "search_valuesets",
+        "get_valueset_options",
+        "apply_choices",
+        "batch_apply_choices",
+        "parse_fhir_payload",
+        "detect_from_cached_cdp",
+        "set_field_valueset_override",
+        "build_terminology",
+        "expand_valueset",
+        "get_remote_valueset_total",
+        "sync_loinc",
+        "purge_loinc"
+    ],
+    "links": {
+        "control-center": [
+            {
+                "name": "Clinical Terminology DB Manager",
+                "icon": "fas fa-database",
+                "url": "manager.php",
+                "show-header-and-footer": true
+            }
+        ],
+        "project": [
+            {
+                "name": "Clinical Terminology Mapper",
+                "icon": "fas fa-sync-alt",
+                "url": "index.php",
+                "show-header-and-footer": true
+            }
+        ]
+    },
+    "system-settings": [
+        {
+            "key": "system_terminology_heading",
+            "name": "<h4 style='margin-bottom:4px; color:#1e3a8a;'><i class='fas fa-database'></i> Clinical Terminology Database</h4><p style='color:#64748b; font-size:0.85rem; margin-bottom:8px;'>The Terminology Database powers FHIR, US Core, mCODE, SDOH, RxNorm, and LOINC ValueSet search and auto-matching across all projects. You can check the current database status, build, or update the database from the <a href='../ExternalModules/?prefix=clinical_terminology_mapper&page=manager' style='font-weight:600;' target='_blank'>Clinical Terminology DB Manager</a> in the Control Center menu.</p>",
+            "type": "descriptive"
+        }
+    ],
+    "project-settings": [
+        {
+            "key": "enable_ontology_provider",
+            "name": "<b>Enable Ontology Provider</b><br>Register HL7 FHIR ValueSets as an ontology auto-suggest provider in the Online Designer for text fields.",
+            "type": "checkbox"
+        },
+        {
+            "key": "packages_heading",
+            "name": "<h4 style='margin-bottom:4px; color:#1e3a8a;'><i class='fas fa-layer-group'></i> Active Terminology Packages</h4><p style='color:#64748b; font-size:0.85rem; margin-bottom:8px;'>Select which FHIR and US Core packages to include in auto-matching and searches for this project.</p>",
+            "type": "descriptive"
+        },
+        {
+            "key": "pkg_fhir_r4",
+            "name": "<b>Base HL7 FHIR R4</b>",
+            "type": "checkbox",
+            "default": true
+        },
+        {
+            "key": "pkg_fhir_r5",
+            "name": "<b>Base HL7 FHIR R5</b>",
+            "type": "checkbox",
+            "default": false
+        },
+        {
+            "key": "pkg_us_core_311",
+            "name": "<b>US Core v3.1.1</b>",
+            "type": "checkbox",
+            "default": true
+        },
+        {
+            "key": "pkg_us_core_501",
+            "name": "<b>US Core v5.0.1</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_us_core_610",
+            "name": "<b>US Core v6.1.0</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_us_core_700",
+            "name": "<b>US Core v7.0.0</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_us_core_800",
+            "name": "<b>US Core v8.0.0</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_us_core_900",
+            "name": "<b>US Core v9.0.0</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_mcode_300",
+            "name": "<b>mCODE v3.0.0 (Oncology baseline)</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_mcode_400",
+            "name": "<b>mCODE v4.0.0 (Oncology latest)</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_sdoh_230",
+            "name": "<b>SDOH Clinical Care v2.3.0</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_sdoh_300",
+            "name": "<b>SDOH Clinical Care v3.0.0</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_rxnorm",
+            "name": "<b>RxNorm Active Ingredients</b>",
+            "type": "checkbox"
+        },
+        {
+            "key": "pkg_loinc",
+            "name": "<b>LOINC Common Lab Observations</b>",
+            "type": "checkbox",
+            "default": false
+        }
+    ]
+}
