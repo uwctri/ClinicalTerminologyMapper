@@ -14,4 +14,4 @@ $initialData = $module->getInitialPageData();
 <script>
     window.CDIS_INITIAL_DATA = <?= json_encode($initialData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
-<script src="<?= htmlspecialchars($module->getUrl('main.js'), ENT_QUOTES) ?>"></script>
+<script src="<?= htmlspecialchars($module->getUrl('index.js'), ENT_QUOTES) ?>"></script>
