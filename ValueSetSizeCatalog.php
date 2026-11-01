@@ -387,17 +387,6 @@ class ValueSetSizeCatalog
             'source' => 'HL7 v3 Code System ObservationType',
             'notes' => 'HL7 v3 Observation Type hierarchy (>10,000 concepts)'
         ],
-        [
-            'id' => 'top-observations',
-            'url' => 'http://hl7.org/fhir/ValueSet/top-observations',
-            'package' => 'LOINC',
-            'version' => null,
-            'total' => '> 10,000',
-            'is_exact' => false,
-            'can_expand' => false,
-            'source' => 'Regenstrief LOINC Top 2000+ Observations',
-            'notes' => 'LOINC frequently performed observation tests'
-        ],
 
         // ==========================================
         // Base HL7 FHIR R5 (v5.0.0) - Large & Capped Sets
@@ -1063,7 +1052,7 @@ class ValueSetSizeCatalog
             'id' => 'top-observations',
             'url' => 'http://loinc.org/vs/top-observations',
             'package' => 'LOINC',
-            'version' => '2.83',
+            'version' => null,
             'total' => 2000,
             'is_exact' => true,
             'can_expand' => true,
@@ -1127,7 +1116,7 @@ class ValueSetSizeCatalog
                 continue;
             }
 
-            if (!empty($version) && $entry['version'] !== $version) {
+            if (!empty($version) && $entry['version'] !== null && $entry['version'] !== $version) {
                 continue;
             }
 
@@ -1145,14 +1134,6 @@ class ValueSetSizeCatalog
     }
 
     /**
-     * Check if a specific ValueSet ID and version exists in the catalog.
-     */
-    public static function hasEntry(string $idOrUrl, ?string $package = null, ?string $version = null): bool
-    {
-        return self::lookup($idOrUrl, $package, $version) !== null;
-    }
-
-    /**
      * Get all catalog entries.
      * 
      * @return array
@@ -1160,13 +1141,5 @@ class ValueSetSizeCatalog
     public static function getAllEntries(): array
     {
         return self::CATALOG;
-    }
-
-    /**
-     * Get all entries for a specific package.
-     */
-    public static function getEntriesForPackage(string $package): array
-    {
-        return array_values(array_filter(self::CATALOG, fn($e) => $e['package'] === $package));
     }
 }

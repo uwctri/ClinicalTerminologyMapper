@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace UWMadison\ClinicalTerminologyMapper;
 
-/** @var \UWMadison\ClinicalTerminologyMapper\ClinicalTerminologyMapper $module */
+use PDO;
+use Throwable;
+
+/** @var ClinicalTerminologyMapper $module */
 
 require_once __DIR__ . '/TerminologyBuilderService.php';
 require_once __DIR__ . '/ValueSetSizeCatalog.php';
@@ -17,7 +20,7 @@ $allPackages = TerminologyBuilderService::PACKAGE_METADATA;
 $truncatedValueSets = [];
 if ($isValid) {
     try {
-        $db = new \PDO('sqlite:' . $dbPath);
+        $db = new PDO('sqlite:' . $dbPath);
 
         $catalogCandidates = ValueSetSizeCatalog::getAllEntries();
         $candidateIds = array_unique(array_column($catalogCandidates, 'id'));
@@ -29,7 +32,7 @@ if ($isValid) {
         }
         $query .= " ORDER BY title ASC";
         $stmt = $db->query($query);
-        $rawTruncated = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $rawTruncated = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $loincAliases = ['consent-content-code', 'questionnaire-questions', 'c80-doc-typecodes', 'doc-typecodes', 'doc-section-codes', 'report-codes', 'observation-codes'];
         $snomedAliases = [
@@ -43,10 +46,7 @@ if ($isValid) {
 
         foreach ($rawTruncated as $row) {
             $count = (int)$row['concept_count'];
-            $lookupKey = "{$row['id']}::{$row['package']}";
-            $cachedTotalVal = is_array($cachedTotals[$lookupKey] ?? null)
-                ? ($cachedTotals[$lookupKey]['total'] ?? null)
-                : ($cachedTotals[$lookupKey] ?? null);
+            $cachedTotalVal = null;
 
             // Strict versioned catalog lookup
             $version = $row['version'] ?? null;
@@ -62,15 +62,6 @@ if ($isValid) {
             }
             if ($count < 1000 && $cachedTotalVal === null) {
                 continue;
-            }
-
-            // Normalize any legacy unformatted error text
-            if (is_string($cachedTotalVal)) {
-                if (str_contains($cachedTotalVal, '>10000') || str_contains($cachedTotalVal, '> 10,000') || str_contains($cachedTotalVal, 'too many codes')) {
-                    $cachedTotalVal = '> 10,000';
-                } elseif (str_contains($cachedTotalVal, 'infinite') || str_contains($cachedTotalVal, 'grammar')) {
-                    $cachedTotalVal = 'Infinite grammar';
-                }
             }
 
             // Exclude ValueSets that already have all their concepts in the database (e.g. animal-breeds 2,370 of 2,370)
@@ -131,10 +122,9 @@ if ($isValid) {
                 $isOver20k = true;
             }
             $row['is_over_20k'] = $isOver20k;
-            $row['can_expand'] = true;
             $truncatedValueSets[] = $row;
         }
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         $truncatedValueSets = [];
     }
 }
@@ -142,7 +132,7 @@ if ($isValid) {
 $loincStats = null;
 if ($isValid) {
     try {
-        $db = new \PDO('sqlite:' . $dbPath);
+        $db = new PDO('sqlite:' . $dbPath);
         $loincCount = (int)$db->query("SELECT count(*) FROM concepts WHERE package = 'LOINC'")->fetchColumn();
         if ($loincCount > 0) {
             $loincStats = [
@@ -150,7 +140,7 @@ if ($isValid) {
                 'valuesets' => (int)$db->query("SELECT count(*) FROM valuesets WHERE package = 'LOINC'")->fetchColumn()
             ];
         }
-    } catch (\Throwable $e) {}
+    } catch (Throwable $e) {}
 }
 
 $module->initializeJavascriptModuleObject();
@@ -201,14 +191,6 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                         <div style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;"><?= $stats['file_size_mb'] ?> MB</div>
                     </div>
                 </div>
-
-                <style>
-                    .pkg-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 24px; font-size: 0.875rem; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
-                    .pkg-table th, .pkg-table td { border: none; padding: 10px 16px; }
-                    .pkg-table th { background: #f8fafc; font-weight: 600; color: #475569; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid #e2e8f0; }
-                    .pkg-table tbody tr:not(:last-child) td { border-bottom: 1px solid #f1f5f9; }
-                    .pkg-table tbody tr:hover td { background-color: #f8fafc; }
-                </style>
 
                 <div style="margin-bottom: 12px; display: flex; align-items: center; justify-content: flex-end;">
                     <span style="font-size: 0.8rem; color: #64748b;">
@@ -473,15 +455,6 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                 </button>
             </div>
             <div id="truncated-section-body" class="card-body" style="padding: 0; display: none;">
-                <style>
-                    .trunc-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.85rem; border: none; margin: 0; }
-                    .trunc-table th, .trunc-table td { border: none; padding: 10px 18px; }
-                    .trunc-table th { background: #f8fafc; font-weight: 600; color: #475569; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 1; }
-                    .trunc-table tbody tr:not(:last-child) td { border-bottom: 1px solid #f1f5f9; }
-                    .trunc-table tbody tr:last-child td { border-bottom: none; }
-                    .trunc-table tbody tr:hover td { background-color: #f8fafc; }
-                </style>
-
                 <div style="max-height: 380px; overflow-y: auto;">
                     <table class="trunc-table">
                         <thead>
@@ -495,7 +468,6 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                         <tbody>
                             <?php foreach ($truncatedValueSets as $tvs): 
                                 $cachedTot = $tvs['cached_total'];
-                                $key = $tvs['id'] . '::' . $tvs['package'];
                             ?>
                                 <tr>
                                     <td>
@@ -747,6 +719,12 @@ $jsmoName = $module->getJavascriptModuleObjectName();
 <script>
     function initManagerScript() {
         const module = <?= $jsmoName ?>;
+        const escapeHtml = (str) => String(str ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
         const btn = document.getElementById('btn-build-db');
         const spinner = document.getElementById('build-spinner');
         const icon = document.getElementById('build-icon');
@@ -812,7 +790,7 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                 checkedBoxes.forEach(cb => {
                     const count = parseInt(cb.dataset.count, 10) || 0;
                     addHtml += '<div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(187,247,208,0.5);">' +
-                        '<span><strong>' + cb.dataset.name + '</strong></span>' +
+                        '<span><strong>' + escapeHtml(cb.dataset.name) + '</strong></span>' +
                         '<span class="badge" style="background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-weight: 600;">' + count.toLocaleString() + ' ValueSets</span>' +
                         '</div>';
                 });
@@ -857,7 +835,7 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                         toAdd.forEach(cb => {
                             const count = parseInt(cb.dataset.count, 10) || 0;
                             addHtml += '<div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(187,247,208,0.5);">' +
-                                '<span><i class="fas fa-plus" style="font-size: 0.75rem; margin-right: 6px; color: #16a34a;"></i><strong>' + cb.dataset.name + '</strong></span>' +
+                                '<span><i class="fas fa-plus" style="font-size: 0.75rem; margin-right: 6px; color: #16a34a;"></i><strong>' + escapeHtml(cb.dataset.name) + '</strong></span>' +
                                 '<span class="badge" style="background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-weight: 600;">+' + count.toLocaleString() + ' ValueSets</span>' +
                                 '</div>';
                         });
@@ -874,7 +852,7 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                         toRemove.forEach(cb => {
                             const count = parseInt(cb.dataset.count, 10) || 0;
                             remHtml += '<div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(254,202,202,0.5);">' +
-                                '<span><i class="fas fa-minus" style="font-size: 0.75rem; margin-right: 6px; color: #dc2626;"></i><strong>' + cb.dataset.name + '</strong></span>' +
+                                '<span><i class="fas fa-minus" style="font-size: 0.75rem; margin-right: 6px; color: #dc2626;"></i><strong>' + escapeHtml(cb.dataset.name) + '</strong></span>' +
                                 '<span class="badge" style="background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; font-weight: 600;">-' + count.toLocaleString() + ' ValueSets</span>' +
                                 '</div>';
                         });
@@ -891,7 +869,7 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                         unchanged.forEach(cb => {
                             const count = parseInt(cb.dataset.count, 10) || 0;
                             uncHtml += '<span style="display: inline-flex; align-items: center; gap: 4px; background: #e2e8f0; color: #334155; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem;">' +
-                                '<i class="fas fa-check" style="font-size: 0.65rem; color: #16a34a;"></i> ' + cb.dataset.name + ' (' + count + ')' +
+                                '<i class="fas fa-check" style="font-size: 0.65rem; color: #16a34a;"></i> ' + escapeHtml(cb.dataset.name) + ' (' + count + ')' +
                                 '</span>';
                         });
                         unchangeList.innerHTML = uncHtml;
@@ -921,16 +899,16 @@ $jsmoName = $module->getJavascriptModuleObjectName();
 
                 if (data && data.success) {
                     const successMsg = isDbValid ? 'Database updated successfully' : 'Build successful';
-                    statusText.innerHTML = '<span style="color:#16a34a; font-weight:600;"><i class="fas fa-check-circle"></i> ' + successMsg + ' (' + (data.valueset_count || 0) + ' ValueSets, ' + (data.concept_count || 0) + ' concepts in ' + (data.elapsed_seconds || '') + 's)! Reloading...</span>';
+                    statusText.innerHTML = '<span style="color:#16a34a; font-weight:600;"><i class="fas fa-check-circle"></i> ' + successMsg + ' (' + escapeHtml(data.valueset_count || 0) + ' ValueSets, ' + escapeHtml(data.concept_count || 0) + ' concepts in ' + escapeHtml(data.elapsed_seconds || '') + 's)! Reloading...</span>';
                     setTimeout(() => window.location.reload(), 1500);
                 } else {
-                    statusText.innerHTML = '<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> ' + (isDbValid ? 'Update' : 'Build') + ' failed: ' + ((data && data.error) || 'Unknown error') + '</span>';
+                    statusText.innerHTML = '<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> ' + (isDbValid ? 'Update' : 'Build') + ' failed: ' + escapeHtml((data && data.error) || 'Unknown error') + '</span>';
                     btn.disabled = false;
                     spinner.style.display = 'none';
                     icon.style.display = 'inline-block';
                 }
             } catch (err) {
-                statusText.innerHTML = '<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Request error: ' + err.message + '</span>';
+                statusText.innerHTML = '<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Request error: ' + escapeHtml(err.message) + '</span>';
                 btn.disabled = false;
                 spinner.style.display = 'none';
                 icon.style.display = 'inline-block';
@@ -1008,13 +986,8 @@ $jsmoName = $module->getJavascriptModuleObjectName();
             modalEl.style.display = 'none';
             modalEl.classList.remove('show');
             document.body.classList.remove('modal-open');
-            const backdrop = document.getElementById('modal-backdrop-custom');
-            if (backdrop) backdrop.remove();
             document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
         }
-
-        function showExpandModal() { showModal(expandModal); }
-        function closeExpandModal() { closeModal(expandModal); }
 
         // Close event delegation
         document.addEventListener('click', function(e) {
@@ -1125,7 +1098,7 @@ $jsmoName = $module->getJavascriptModuleObjectName();
             if (confirmBtn) confirmBtn.disabled = false;
             if (cancelBtn) cancelBtn.disabled = false;
 
-            showExpandModal();
+            showModal(expandModal);
         });
 
         // Modal confirm button handler
@@ -1153,7 +1126,7 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                         const prevCount = res.previous_count != null ? res.previous_count.toLocaleString() : '0';
                         const newCount = res.new_count != null ? res.new_count.toLocaleString() : '0';
                         if (successBox) {
-                            successBox.innerHTML = `<strong><i class="fas fa-check-circle"></i> Success!</strong> ValueSet '${id}' expanded from ${prevCount} to ${newCount} concepts. Reloading page...`;
+                            successBox.innerHTML = `<strong><i class="fas fa-check-circle"></i> Success!</strong> ValueSet '${escapeHtml(id)}' expanded from ${escapeHtml(prevCount)} to ${escapeHtml(newCount)} concepts. Reloading page...`;
                             successBox.style.display = 'block';
                         }
                         setTimeout(() => {
@@ -1162,7 +1135,7 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                     } else {
                         if (progress) progress.style.display = 'none';
                         if (errorBox) {
-                            errorBox.innerHTML = `<strong><i class="fas fa-times-circle"></i> Expansion Failed:</strong> ${res.error || 'Unknown error occurred'}`;
+                            errorBox.innerHTML = `<strong><i class="fas fa-times-circle"></i> Expansion Failed:</strong> ${escapeHtml(res?.error || 'Unknown error occurred')}`;
                             errorBox.style.display = 'block';
                         }
                         btnConfirmExpand.disabled = false;
@@ -1171,7 +1144,7 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                 } catch (e) {
                     if (progress) progress.style.display = 'none';
                     if (errorBox) {
-                        errorBox.innerHTML = `<strong><i class="fas fa-times-circle"></i> Request Error:</strong> ${e.message}`;
+                        errorBox.innerHTML = `<strong><i class="fas fa-times-circle"></i> Request Error:</strong> ${escapeHtml(e.message)}`;
                         errorBox.style.display = 'block';
                     }
                     btnConfirmExpand.disabled = false;
@@ -1208,17 +1181,17 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                 try {
                     const res = await module.ajax('sync_loinc', { username: username, password: password });
                     if (res && res.success) {
-                        loincMsg.innerHTML = `<span style="color:#16a34a; font-weight:600;"><i class="fas fa-check-circle"></i> Success! Synced ${res.concept_count} LOINC concepts. Reloading...</span>`;
+                        loincMsg.innerHTML = `<span style="color:#16a34a; font-weight:600;"><i class="fas fa-check-circle"></i> Success! Synced ${escapeHtml(res.concept_count)} LOINC concepts. Reloading...</span>`;
                         if (loincPass) loincPass.value = '';
                         setTimeout(() => window.location.reload(), 1500);
                     } else {
-                        loincMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Error: ${res.error || 'Failed to sync LOINC'}</span>`;
+                        loincMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Error: ${escapeHtml(res?.error || 'Failed to sync LOINC')}</span>`;
                         btnSyncLoinc.disabled = false;
                         if (loincSyncIcon) loincSyncIcon.style.display = 'inline-block';
                         if (loincSyncSpinner) loincSyncSpinner.style.display = 'none';
                     }
                 } catch (e) {
-                    loincMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Request error: ${e.message}</span>`;
+                    loincMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Request error: ${escapeHtml(e.message)}</span>`;
                     btnSyncLoinc.disabled = false;
                     if (loincSyncIcon) loincSyncIcon.style.display = 'inline-block';
                     if (loincSyncSpinner) loincSyncSpinner.style.display = 'none';
@@ -1243,11 +1216,11 @@ $jsmoName = $module->getJavascriptModuleObjectName();
                         loincMsg.innerHTML = '<span style="color:#16a34a; font-weight:600;"><i class="fas fa-check-circle"></i> LOINC package removed. Reloading...</span>';
                         setTimeout(() => window.location.reload(), 1000);
                     } else {
-                        loincMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Error: ${res.error || 'Failed to remove LOINC'}</span>`;
+                        loincMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Error: ${escapeHtml(res?.error || 'Failed to remove LOINC')}</span>`;
                         btnPurgeLoinc.disabled = false;
                     }
                 } catch (e) {
-                    loincMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Request error: ${e.message}</span>`;
+                    loincMsg.innerHTML = `<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> Request error: ${escapeHtml(e.message)}</span>`;
                     btnPurgeLoinc.disabled = false;
                 }
             });

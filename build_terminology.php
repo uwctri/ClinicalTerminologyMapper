@@ -134,7 +134,12 @@ if (isset($options['all-plus-r5'])) {
         'US Core v6.1.0',
         'US Core v7.0.0',
         'US Core v8.0.0',
-        'US Core v9.0.0'
+        'US Core v9.0.0',
+        'mCODE v3.0.0',
+        'mCODE v4.0.0',
+        'SDOH Clinical Care v2.3.0',
+        'SDOH Clinical Care v3.0.0',
+        'RxNorm'
     ];
 } elseif (isset($options['all'])) {
     $selected = [
@@ -144,7 +149,12 @@ if (isset($options['all-plus-r5'])) {
         'US Core v6.1.0',
         'US Core v7.0.0',
         'US Core v8.0.0',
-        'US Core v9.0.0'
+        'US Core v9.0.0',
+        'mCODE v3.0.0',
+        'mCODE v4.0.0',
+        'SDOH Clinical Care v2.3.0',
+        'SDOH Clinical Care v3.0.0',
+        'RxNorm'
     ];
 } else {
     if (isset($options['r4'])) {
@@ -242,7 +252,7 @@ foreach ($selected as $pkg) {
 echo "========================================================\n\n";
 
 try {
-    $builder = new TerminologyBuilderService($outputPath, $cacheDir, $keepCache, null, $selected);
+    $builder = new TerminologyBuilderService($outputPath, $cacheDir, $keepCache, $selected);
     $stats = $builder->build();
     if (!empty($stats['success'])) {
         echo "\nBuild completed successfully in {$stats['elapsed_seconds']}s.\n";

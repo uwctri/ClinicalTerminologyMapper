@@ -20,11 +20,9 @@
         "apply_choices",
         "batch_apply_choices",
         "parse_fhir_payload",
-        "detect_from_cached_cdp",
         "set_field_valueset_override",
         "build_terminology",
         "expand_valueset",
-        "get_remote_valueset_total",
         "sync_loinc",
         "purge_loinc"
     ],

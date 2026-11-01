@@ -8,17 +8,30 @@ use Project;
 use UserRights;
 use OntologyManager;
 use Logging;
+use PDO;
+use Throwable;
 
 class ClinicalTerminologyMapper extends AbstractExternalModule
 {
+    private const PACKAGE_KEY_MAP = [
+        'pkg_fhir_r4'     => 'FHIR R4',
+        'pkg_fhir_r5'     => 'FHIR R5',
+        'pkg_us_core_311' => 'US Core v3.1.1',
+        'pkg_us_core_501' => 'US Core v5.0.1',
+        'pkg_us_core_610' => 'US Core v6.1.0',
+        'pkg_us_core_700' => 'US Core v7.0.0',
+        'pkg_us_core_800' => 'US Core v8.0.0',
+        'pkg_us_core_900' => 'US Core v9.0.0',
+        'pkg_mcode_300'   => 'mCODE v3.0.0',
+        'pkg_mcode_400'   => 'mCODE v4.0.0',
+        'pkg_sdoh_230'    => 'SDOH Clinical Care v2.3.0',
+        'pkg_sdoh_300'    => 'SDOH Clinical Care v3.0.0',
+        'pkg_rxnorm'      => 'RxNorm',
+        'pkg_loinc'       => 'LOINC',
+    ];
+
     private ?TerminologyService $terminologyService = null;
     private ?FhirOntologyProvider $ontologyProvider = null;
-
-    public function __construct()
-    {
-        parent::__construct();
-        $this->disableUserBasedSettingPermissions();
-    }
 
     public function getTerminologyService(): TerminologyService
     {
@@ -28,11 +41,6 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             $this->terminologyService = new TerminologyService($dbPath);
         }
         return $this->terminologyService;
-    }
-
-    public function getTerminology(): TerminologyService
-    {
-        return $this->getTerminologyService();
     }
 
     public function getOntologyProvider(?int $projectId = null): FhirOntologyProvider
@@ -49,7 +57,6 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
 
     public function redcap_module_project_enable($version, $project_id): void
     {
-        $this->disableUserBasedSettingPermissions();
         $available = $this->getTerminologyService()->getAvailablePackages();
         if (in_array('FHIR R4', $available, true) && $this->getProjectSetting('pkg_fhir_r4', $project_id) === null) {
             $this->setProjectSetting('pkg_fhir_r4', true, $project_id);
@@ -65,23 +72,12 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
         if ($project_id === null) return $settings;
 
         $available = $this->getTerminologyService()->getAvailablePackages();
-        $pkgKeyMap = [
-            'pkg_fhir_r4' => 'FHIR R4',
-            'pkg_fhir_r5' => 'FHIR R5',
-            'pkg_us_core_311' => 'US Core v3.1.1',
-            'pkg_us_core_501' => 'US Core v5.0.1',
-            'pkg_us_core_610' => 'US Core v6.1.0',
-            'pkg_us_core_700' => 'US Core v7.0.0',
-            'pkg_us_core_800' => 'US Core v8.0.0',
-            'pkg_us_core_900' => 'US Core v9.0.0',
-            'pkg_loinc' => 'LOINC',
-        ];
 
         $filtered = [];
         foreach ($settings as $s) {
             $key = $s['key'] ?? '';
-            if (isset($pkgKeyMap[$key])) {
-                $pkgName = $pkgKeyMap[$key];
+            if (isset(self::PACKAGE_KEY_MAP[$key])) {
+                $pkgName = self::PACKAGE_KEY_MAP[$key];
                 if (!in_array($pkgName, $available, true)) {
                     // Package is not built in the database, don't list it in project configuration
                     continue;
@@ -98,14 +94,9 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
         if (!class_exists('OntologyManager')) return;
 
         $pid = $project_id ?? $this->getProjectId() ?? (isset($_GET['pid']) && is_numeric($_GET['pid']) ? (int)$_GET['pid'] : null);
+        if ($pid === null) return;
 
-        $enabled = false;
-        if ($pid !== null) {
-            $enabled = (bool)$this->getProjectSetting('enable_ontology_provider', $pid);
-        } else {
-            $enabled = (bool)$this->getSystemSetting('enable_ontology_provider');
-        }
-
+        $enabled = (bool)$this->getProjectSetting('enable_ontology_provider', $pid);
         if ($enabled && $this->getTerminologyService()->isAvailable()) {
             $manager = OntologyManager::getOntologyManager();
             $manager->addProvider($this->getOntologyProvider($pid));
@@ -150,7 +141,7 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             $selectedPackages = isset($payload['packages']) && is_array($payload['packages'])
                 ? array_values(array_map('strval', $payload['packages']))
                 : null;
-            $builder = new TerminologyBuilderService($dbPath, null, false, null, $selectedPackages);
+            $builder = new TerminologyBuilderService($dbPath, null, false, $selectedPackages);
             return $builder->build();
         }
 
@@ -159,13 +150,6 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 return ['success' => false, 'error' => 'Super User privileges required.'];
             }
             return $this->expandSingleValueset($payload);
-        }
-
-        if ($action === 'get_remote_valueset_total') {
-            if (!defined('SUPER_USER') || !SUPER_USER) {
-                return ['success' => false, 'error' => 'Super User privileges required.'];
-            }
-            return $this->getRemoteValuesetTotal($payload);
         }
 
         if ($action === 'sync_loinc') {
@@ -196,7 +180,6 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
         if ($action === 'batch_apply_choices') return $this->batchApplyChoices($project_id, $payload);
         if ($action === 'set_field_valueset_override') return $this->setFieldValuesetOverride($project_id, $payload);
         if ($action === 'parse_fhir_payload') return $this->parseFhirPayload($project_id, $payload);
-        if ($action === 'detect_from_cached_cdp') return $this->detectFromCachedCdp($project_id);
 
         return ['success' => false, 'error' => 'Unknown action: ' . htmlspecialchars($action)];
     }
@@ -306,6 +289,7 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             $isCustom = !empty($item['is_custom']);
 
             $elementType = strtolower((string)$meta['element_type']);
+            $isMultipleChoice = in_array($elementType, ['radio', 'select', 'checkbox', 'advcheckbox'], true);
             $currentEnum = (string)($meta['element_enum'] ?? '');
             $parsedChoices = parseEnum($currentEnum);
 
@@ -313,7 +297,6 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
 
             $targetConcepts = [];
             $isMatch = false;
-            $mismatchReasons = [];
             $selectedPresetId = null;
             $targetVsTitle = null;
             $targetVsPackage = 'FHIR R4';
@@ -325,7 +308,6 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 $targetVsPackage = null;
                 $targetConcepts = [];
                 $isMatch = false;
-                $mismatchReasons = ['Field explicitly unmapped'];
             } else if (!empty($override)) {
                 $overridePkg = null;
                 $overrideVsId = $override;
@@ -344,23 +326,14 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 $targetVsTitle = $primaryPreset['title'];
                 $targetVsPackage = $primaryPreset['package'] ?? 'FHIR R4';
                 $targetConcepts = $terminology->getConceptsForValueset($primaryPreset['id'], $primaryPreset['package'] ?? null);
-            } else if ($isCustom) {
-                $mismatchReasons = ['No FHIR ValueSet assigned yet'];
             }
 
-            if (!empty($targetConcepts)) {
-                $targetCodes = array_column($targetConcepts, 'code');
-                $existingCodes = array_keys($parsedChoices);
+            if ($isMultipleChoice && !empty($targetConcepts)) {
+                $targetCodes = array_map('strval', array_column($targetConcepts, 'code'));
+                $existingCodes = array_map('strval', array_keys($parsedChoices));
 
-                if (!empty($existingCodes)) {
-                    $diff = array_diff($existingCodes, $targetCodes);
-                    if (empty($diff)) {
-                        $isMatch = true;
-                    } else {
-                        $mismatchReasons[] = count($diff) . ' choice codes do not match standard';
-                    }
-                } else {
-                    $mismatchReasons[] = 'Field has no choice options defined';
+                if (!empty($existingCodes) && empty(array_diff($existingCodes, $targetCodes)) && empty(array_diff($targetCodes, $existingCodes))) {
+                    $isMatch = true;
                 }
             }
 
@@ -375,16 +348,14 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 'external_source' => $row['external_source_field_name'],
                 'is_custom' => $isCustom,
                 'current_choices' => $parsedChoices,
-                'current_raw_enum' => $currentEnum,
                 'presets' => $availablePresets,
                 'selected_preset_id' => $selectedPresetId,
                 'target_vs_title' => $targetVsTitle,
                 'target_vs_package' => $targetVsPackage,
                 'target_concepts' => $targetConcepts,
                 'is_match' => $isMatch,
-                'mismatch_reasons' => $mismatchReasons,
                 'record_count' => $recordCount,
-                'is_multiple_choice' => in_array($elementType, ['radio', 'select', 'checkbox', 'advcheckbox'], true)
+                'is_multiple_choice' => $isMultipleChoice
             ];
         }
 
@@ -419,8 +390,8 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
         $fields = [];
         foreach ($metaSource as $fieldName => $meta) {
             $elementType = strtolower((string)$meta['element_type']);
-            // Allow text, radio, dropdown (select)
-            if (!in_array($elementType, ['text', 'radio', 'select'], true)) {
+            // Allow text, radio, dropdown (select), and checkbox
+            if (!in_array($elementType, ['text', 'radio', 'select', 'checkbox'], true)) {
                 continue;
             }
 
@@ -514,21 +485,9 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             $project_id = (int)($this->getProjectId() ?? 0);
         }
 
-        $map = [
-            'pkg_fhir_r4' => 'FHIR R4',
-            'pkg_fhir_r5' => 'FHIR R5',
-            'pkg_us_core_311' => 'US Core v3.1.1',
-            'pkg_us_core_501' => 'US Core v5.0.1',
-            'pkg_us_core_610' => 'US Core v6.1.0',
-            'pkg_us_core_700' => 'US Core v7.0.0',
-            'pkg_us_core_800' => 'US Core v8.0.0',
-            'pkg_us_core_900' => 'US Core v9.0.0',
-            'pkg_loinc' => 'LOINC',
-        ];
-
         $enabled = [];
         if ($project_id > 0) {
-            foreach ($map as $settingKey => $pkgName) {
+            foreach (self::PACKAGE_KEY_MAP as $settingKey => $pkgName) {
                 $val = $this->getProjectSetting($settingKey, $project_id);
                 if ($val === true || $val === '1' || $val === 1) {
                     $enabled[] = $pkgName;
@@ -653,9 +612,6 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 $vs['catalog_is_exact'] = $cat['is_exact'];
                 $vs['catalog_source'] = $cat['source'];
                 $vs['catalog_notes'] = $cat['notes'];
-                if ((int)($vs['concept_count'] ?? 0) === 0 && is_numeric($cat['total'])) {
-                    $vs['verified_count'] = (int)$cat['total'];
-                }
             }
         }
         unset($vs);
@@ -681,17 +637,10 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
 
         $concepts = $terminology->getConceptsForValueset($vs['id'], $vs['package']);
 
-        $enumLines = [];
-        foreach ($concepts as $c) {
-            $enumLines[] = "{$c['code']}, {$c['display']}";
-        }
-        $formattedEnum = implode(" \\n ", $enumLines);
-
         return [
             'success' => true,
             'valueset' => $vs,
-            'concepts' => $concepts,
-            'formatted_enum' => $formattedEnum
+            'concepts' => $concepts
         ];
     }
 
@@ -724,9 +673,10 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             return ['success' => false, 'error' => "Cannot update field '{$fieldName}' because it is explicitly unmapped."];
         }
 
-        $checkSql = "SELECT field_name FROM {$targetTable} WHERE project_id = ? AND field_name = ? LIMIT 1";
+        $checkSql = "SELECT field_name, element_type FROM {$targetTable} WHERE project_id = ? AND field_name = ? LIMIT 1";
         $checkRes = $this->query($checkSql, [$project_id, $fieldName]);
-        if (!$checkRes->fetch_assoc()) {
+        $existingRow = $checkRes->fetch_assoc();
+        if (!$existingRow) {
             return ['success' => false, 'error' => "Field '{$fieldName}' not found in {$targetTable}."];
         }
 
@@ -737,7 +687,10 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             $optionCount = count($lines);
         }
 
-        $newElementType = ($optionCount > 6) ? 'select' : 'radio';
+        $currentType = strtolower((string)($existingRow['element_type'] ?? ''));
+        $newElementType = in_array($currentType, ['checkbox', 'advcheckbox'], true)
+            ? $currentType
+            : (($optionCount > 6) ? 'select' : 'radio');
 
         $updateSql = "UPDATE {$targetTable} SET element_enum = ?, element_type = ?, element_validation_type = NULL, element_validation_min = NULL, element_validation_max = NULL, element_validation_checktype = NULL WHERE project_id = ? AND field_name = ?";
         $this->query($updateSql, [$newEnum, $newElementType, $project_id, $fieldName]);
@@ -802,6 +755,13 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 continue;
             }
 
+            $checkSql = "SELECT field_name, element_type FROM {$targetTable} WHERE project_id = ? AND field_name = ? LIMIT 1";
+            $checkRes = $this->query($checkSql, [$project_id, $fieldName]);
+            $existingRow = $checkRes->fetch_assoc();
+            if (!$existingRow) {
+                continue;
+            }
+
             $parsed = parseEnum($newEnum);
             $optionCount = is_array($parsed) ? count($parsed) : 0;
             if ($optionCount === 0) {
@@ -809,7 +769,10 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 $optionCount = count($lines);
             }
 
-            $newElementType = ($optionCount > 6) ? 'select' : 'radio';
+            $currentType = strtolower((string)($existingRow['element_type'] ?? ''));
+            $newElementType = in_array($currentType, ['checkbox', 'advcheckbox'], true)
+                ? $currentType
+                : (($optionCount > 6) ? 'select' : 'radio');
 
             $updateSql = "UPDATE {$targetTable} SET element_enum = ?, element_type = ?, element_validation_type = NULL, element_validation_min = NULL, element_validation_max = NULL, element_validation_checktype = NULL WHERE project_id = ? AND field_name = ?";
             $this->query($updateSql, [$newEnum, $newElementType, $project_id, $fieldName]);
@@ -883,11 +846,12 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             $projectMappings[strtolower($row['external_source_field_name'])] = $row['field_name'];
         }
 
+        $enabledPackages = $this->getEnabledPackages($project_id);
         $results = [];
         foreach ($extractedItems as $item) {
             $code = $item['code'];
             $system = $item['system'] ?? null;
-            $matchedVsList = $terminology->findValueSetsByConcept($code, $system);
+            $matchedVsList = $terminology->findValueSetsByConcept($code, $system, $enabledPackages);
 
             $matchedField = null;
             $sourceHint = strtolower($item['path']);
@@ -974,52 +938,6 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
         }
     }
 
-    private function detectFromCachedCdp(int $project_id): array
-    {
-        $sql = "
-            SELECT m.field_name, m.external_source_field_name, d.source_value, d.source_value2, d.adjudication_error_message, d.source_timestamp
-            FROM redcap_ddp_records_data d
-            JOIN redcap_ddp_mapping m ON d.map_id = m.map_id
-            WHERE m.project_id = ? AND (d.source_value != '' OR d.source_value2 != '')
-            ORDER BY d.md_id DESC
-            LIMIT 100
-        ";
-        $q = $this->query($sql, [$project_id]);
-
-        $terminology = $this->getTerminologyService();
-        if (!$terminology->isAvailable()) {
-            return ['success' => false, 'db_missing' => true, 'error' => 'The FHIR Terminology Database is not initialized.'];
-        }
-        $detected = [];
-        $seen = [];
-
-        while ($row = $q->fetch_assoc()) {
-            $val = trim((string)($row['source_value2'] ?: $row['source_value']));
-            if ($val === '') continue;
-
-            $key = $row['field_name'] . '|' . $val;
-            if (isset($seen[$key])) continue;
-            $seen[$key] = true;
-
-            $matchedVs = $terminology->findValueSetsByConcept($val);
-
-            $detected[] = [
-                'field_name' => $row['field_name'],
-                'external_source' => $row['external_source_field_name'],
-                'received_value' => $val,
-                'adjudication_error' => $row['adjudication_error_message'] ?? null,
-                'timestamp' => $row['source_timestamp'],
-                'matched_valuesets' => $matchedVs
-            ];
-        }
-
-        return [
-            'success' => true,
-            'cached_items_found' => count($detected),
-            'detected' => $detected
-        ];
-    }
-
     private function expandSingleValueset(array $payload): array
     {
         $id = trim((string)($payload['id'] ?? ''));
@@ -1038,10 +956,13 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             return ['success' => false, 'error' => "ValueSet '{$id}' not found in package '{$package}'."];
         }
 
-        require_once __DIR__ . '/ValueSetSizeCatalog.php';
-        $catalogEntry = ValueSetSizeCatalog::lookup($id, $package, $vs['version'] ?? null);
-
-        $db = $terminology->getDb();
+        $dbPath = __DIR__ . '/fhir_valuesets.sqlite';
+        if (!is_writable($dbPath)) {
+            @chmod($dbPath, 0666);
+        }
+        $db = new PDO('sqlite:' . $dbPath);
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db->exec('PRAGMA journal_mode = WAL;');
 
         set_time_limit(300);
         ini_set('memory_limit', '1024M');
@@ -1132,53 +1053,10 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 'new_count' => $newCount,
                 'added_count' => count($seen)
             ];
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             if ($db->inTransaction()) $db->rollBack();
             return ['success' => false, 'error' => 'Database update error: ' . $e->getMessage()];
         }
-    }
-
-    private function getRemoteValuesetTotal(array $payload): array
-    {
-        require_once __DIR__ . '/ValueSetSizeCatalog.php';
-        $id = trim((string)($payload['id'] ?? ''));
-        $package = trim((string)($payload['package'] ?? ''));
-        if ($id === '' || $package === '') {
-            return ['success' => false, 'error' => 'ValueSet ID and package are required.'];
-        }
-
-        $terminology = $this->getTerminologyService();
-        if (!$terminology->isAvailable()) {
-            return ['success' => false, 'error' => 'Terminology database is not available.'];
-        }
-
-        $vs = $terminology->getValueSet($id, $package);
-        $version = $vs['version'] ?? null;
-
-        // Strict versioned lookup from static size catalog
-        $catalogEntry = ValueSetSizeCatalog::lookup($id, $package, $version);
-        if ($catalogEntry !== null) {
-            return [
-                'success' => true,
-                'id' => $id,
-                'package' => $package,
-                'version' => $catalogEntry['version'],
-                'total' => $catalogEntry['total'],
-                'is_exact' => $catalogEntry['is_exact'],
-                'can_expand' => $catalogEntry['can_expand'],
-                'source' => $catalogEntry['source'],
-                'notes' => $catalogEntry['notes'],
-                'from_catalog' => true,
-                'cached' => true
-            ];
-        }
-
-        return [
-            'success' => false,
-            'id' => $id,
-            'package' => $package,
-            'error' => 'ValueSet size not found in catalog.'
-        ];
     }
 
     public function syncLoincFromApi(array $payload): array
@@ -1338,8 +1216,8 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             @chmod($dbPath, 0666);
         }
 
-        $db = new \PDO('sqlite:' . $dbPath);
-        $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $db = new PDO('sqlite:' . $dbPath);
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec('PRAGMA journal_mode = WAL;');
 
         $db->beginTransaction();
@@ -1401,7 +1279,7 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 INSERT INTO valuesets_fts(valuesets_fts) VALUES('optimize');
                 INSERT INTO concepts_fts(concepts_fts) VALUES('optimize');
             ");
-        } catch (\Throwable $e) {}
+        } catch (Throwable $e) {}
 
         return [
             'success' => true,
@@ -1422,8 +1300,8 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             @chmod($dbPath, 0666);
         }
 
-        $db = new \PDO('sqlite:' . $dbPath);
-        $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $db = new PDO('sqlite:' . $dbPath);
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec('PRAGMA journal_mode = WAL;');
 
         $db->beginTransaction();
@@ -1444,7 +1322,7 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
                 INSERT INTO valuesets_fts(valuesets_fts) VALUES('optimize');
                 INSERT INTO concepts_fts(concepts_fts) VALUES('optimize');
             ");
-        } catch (\Throwable $e) {}
+        } catch (Throwable $e) {}
 
         return ['success' => true];
     }

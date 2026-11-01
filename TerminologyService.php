@@ -63,8 +63,6 @@ class TerminologyService
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
-        $this->db->exec('PRAGMA journal_mode = WAL;');
-        $this->db->exec('PRAGMA synchronous = NORMAL;');
         $this->db->exec('PRAGMA query_only = ON;');
         $this->db->exec('PRAGMA mmap_size = 268435456;');
         $this->db->exec('PRAGMA cache_size = -64000;');
@@ -73,7 +71,7 @@ class TerminologyService
         return $this->db;
     }
 
-    public function findValueSetsByConcept(string $code, ?string $system = null): array
+    public function findValueSetsByConcept(string $code, ?string $system = null, ?array $allowedPackages = null): array
     {
         if (!$this->isAvailable()) return [];
 
@@ -81,16 +79,28 @@ class TerminologyService
         $code = trim($code);
         if ($code === '') return [];
 
+        $pkgFilter = '';
+        $pkgParams = [];
+        if (!empty($allowedPackages)) {
+            $placeholders = [];
+            foreach (array_values($allowedPackages) as $i => $pkg) {
+                $ph = ":pkg_{$i}";
+                $placeholders[] = $ph;
+                $pkgParams[$ph] = $pkg;
+            }
+            $pkgFilter = " AND v.package IN (" . implode(',', $placeholders) . ")";
+        }
+
         if (!empty($system)) {
             $stmt = $db->prepare("
                 SELECT DISTINCT v.id, v.title, v.url, v.urn, c.code, c.display, v.package
                 FROM concepts c
                 JOIN valuesets v ON c.valueset_id = v.id AND c.package = v.package
-                WHERE c.code = :code AND (c.system = :system OR v.url = :system OR v.urn = :system)
-                ORDER BY v.title ASC
+                WHERE c.code = :code AND (c.system = :system OR v.url = :system OR v.urn = :system){$pkgFilter}
+                ORDER BY CASE WHEN v.package LIKE 'US Core%' THEN 0 WHEN v.package = 'FHIR R4' THEN 1 ELSE 2 END, v.title ASC
                 LIMIT 10
             ");
-            $stmt->execute([':code' => $code, ':system' => $system]);
+            $stmt->execute(array_merge([':code' => $code, ':system' => $system], $pkgParams));
             $res = $stmt->fetchAll();
             if (!empty($res)) return $res;
         }
@@ -99,11 +109,11 @@ class TerminologyService
             SELECT DISTINCT v.id, v.title, v.url, v.urn, c.code, c.display, v.package
             FROM concepts c
             JOIN valuesets v ON c.valueset_id = v.id AND c.package = v.package
-            WHERE c.code = :code
-            ORDER BY v.title ASC
+            WHERE c.code = :code{$pkgFilter}
+            ORDER BY CASE WHEN v.package LIKE 'US Core%' THEN 0 WHEN v.package = 'FHIR R4' THEN 1 ELSE 2 END, v.title ASC
             LIMIT 10
         ");
-        $stmt->execute([':code' => $code]);
+        $stmt->execute(array_merge([':code' => $code], $pkgParams));
         return $stmt->fetchAll();
     }
 

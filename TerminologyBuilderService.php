@@ -186,7 +186,7 @@ class TerminologyBuilderService
 
     private ?array $selectedPackages = null;
 
-    public function __construct(string $outputPath, ?string $cacheDir = null, bool $keepCache = false, ?callable $logger = null, ?array $selectedPackages = null)
+    public function __construct(string $outputPath, ?string $cacheDir = null, bool $keepCache = false, ?array $selectedPackages = null)
     {
         $this->outputPath = $outputPath;
         $this->cacheDir = $cacheDir ?: sys_get_temp_dir() . '/fhir_r4_cache_' . getmypid();
@@ -1126,11 +1126,15 @@ class TerminologyBuilderService
     {
         $usCoreVersions = [];
         foreach ($activeUsCorePackages as $pkgLabel => $info) {
-            $usCoreVersions[$pkgLabel] = $info['version'];
+            if (str_starts_with($pkgLabel, 'US Core')) {
+                $usCoreVersions[$pkgLabel] = $info['version'];
+            }
         }
         if (empty($activeUsCorePackages) && $this->selectedPackages === null) {
             foreach (self::US_CORE_PACKAGES as $pkgLabel => $info) {
-                $usCoreVersions[$pkgLabel] = $info['version'];
+                if (str_starts_with($pkgLabel, 'US Core')) {
+                    $usCoreVersions[$pkgLabel] = $info['version'];
+                }
             }
         }
         if (empty($usCoreVersions)) return;
@@ -1207,23 +1211,8 @@ class TerminologyBuilderService
         $this->db->commit();
     }
 
-    private function autoExpandCappedValuesets(): void
+    private function autoExpandCappedValuesets(?array $packagesToFilter = null): void
     {
-        $cachedTotals = [];
-
-        if (class_exists('\ExternalModules\ExternalModules')) {
-            try {
-                $m = \ExternalModules\ExternalModules::getModuleInstance('clinical_terminology_mapper');
-                if ($m) {
-                    $sysCached = $m->getSystemSetting('remote_vs_totals');
-                    if (is_string($sysCached)) $sysCached = json_decode($sysCached, true) ?: [];
-                    if (is_array($sysCached)) {
-                        $cachedTotals = array_merge($cachedTotals, $sysCached);
-                    }
-                }
-            } catch (\Throwable $e) {}
-        }
-
         // Materialize current counts to find candidates
         $this->db->exec("
             UPDATE valuesets 
@@ -1234,12 +1223,24 @@ class TerminologyBuilderService
             );
         ");
 
-        $st = $this->db->query("SELECT id, package, url, concept_count FROM valuesets WHERE concept_count >= 1000 ORDER BY concept_count DESC");
-        $candidates = $st ? $st->fetchAll(PDO::FETCH_ASSOC) : [];
+        $sql = "SELECT id, package, url, version, concept_count FROM valuesets WHERE concept_count >= 1000";
+        $params = [];
+        if (!empty($packagesToFilter)) {
+            $placeholders = implode(',', array_fill(0, count($packagesToFilter), '?'));
+            $sql .= " AND package IN ({$placeholders})";
+            $params = array_values($packagesToFilter);
+        }
+        $sql .= " ORDER BY concept_count DESC";
+
+        $st = $this->db->prepare($sql);
+        $st->execute($params);
+        $candidates = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         if (empty($candidates)) {
             return;
         }
+
+        require_once __DIR__ . '/ValueSetSizeCatalog.php';
 
         $cStmt = $this->db->prepare("
             INSERT INTO concepts (valueset_id, package, system, code, display, definition, sort_order)
@@ -1248,24 +1249,20 @@ class TerminologyBuilderService
         $delStmt = $this->db->prepare("DELETE FROM concepts WHERE valueset_id = ? AND package = ?");
         $updVsStmt = $this->db->prepare("UPDATE valuesets SET concept_count = ? WHERE id = ? AND package = ?");
 
-        $expandedCount = 0;
-
         foreach ($candidates as $row) {
             $id = $row['id'];
             $pkg = $row['package'];
             $url = $row['url'] ?? '';
             $curCount = (int)$row['concept_count'];
-            $lookupKey = "{$id}::{$pkg}";
 
             if (empty($url)) continue;
 
-            require_once __DIR__ . '/ValueSetSizeCatalog.php';
             $catalogEntry = ValueSetSizeCatalog::lookup($id, $pkg, $row['version'] ?? null);
             $cachedVal = $catalogEntry !== null ? $catalogEntry['total'] : null;
 
             // If total is numeric and <= 5000, and current_count differs, auto-expand!
             if (is_numeric($cachedVal) && (int)$cachedVal <= 5000 && (int)$cachedVal !== $curCount) {
-                $expandedConcepts = $this->fetchRemoteExpansionConcepts($url);
+                $expandedConcepts = $this->fetchRemoteExpansionConcepts($url, $pkg);
                 if (!empty($expandedConcepts)) {
                     $this->db->beginTransaction();
                     $delStmt->execute([$id, $pkg]);
@@ -1284,36 +1281,15 @@ class TerminologyBuilderService
                     $newCount = count($expandedConcepts);
                     $updVsStmt->execute([$newCount, $id, $pkg]);
                     $this->db->commit();
-
-                    $cachedTotals[$lookupKey] = [
-                        'total' => $newCount,
-                        'timestamp' => time()
-                    ];
-                    $expandedCount++;
                 }
-            } elseif (!is_numeric($cachedVal) || (int)$cachedVal > 5000) {
-                // If we cannot load the full ValueSet, do not load any partial concepts
-                $this->db->beginTransaction();
-                $delStmt->execute([$id, $pkg]);
-                $updVsStmt->execute([0, $id, $pkg]);
-                $this->db->commit();
             }
-        }
-
-        if (class_exists('\ExternalModules\ExternalModules')) {
-            try {
-                if (!defined('SUPER_USER')) define('SUPER_USER', 1);
-                $m = \ExternalModules\ExternalModules::getModuleInstance('clinical_terminology_mapper');
-                if ($m) {
-                    $m->setSystemSetting('remote_vs_totals', $cachedTotals);
-                }
-            } catch (\Throwable $e) {}
         }
     }
 
-    private function fetchRemoteExpansionConcepts(string $url): ?array
+    private function fetchRemoteExpansionConcepts(string $url, string $package = 'FHIR R4'): ?array
     {
-        $expandUrl = "https://tx.fhir.org/r4/ValueSet/\$expand?url=" . urlencode($url) . "&count=5000";
+        $endpoint = ($package === 'FHIR R5' ? 'r5' : 'r4');
+        $expandUrl = "https://tx.fhir.org/{$endpoint}/ValueSet/\$expand?url=" . urlencode($url) . "&count=5000";
         $ctx = stream_context_create([
             'http' => [
                 'method' => 'GET',
@@ -1456,6 +1432,9 @@ class TerminologyBuilderService
                 }
                 $this->seedSupplementalDemographics($igPackagesToAdd);
             }
+
+            // Auto-expand capped ValueSets <= 5,000 for newly added packages
+            $this->autoExpandCappedValuesets($toAdd);
 
             // RxNorm
             if (in_array('RxNorm', $toAdd, true)) {

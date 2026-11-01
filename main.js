@@ -1,7 +1,37 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const module = (window.ExternalModules?.UWMadison?.ClinicalTerminologyMapper || window.ExternalModules?.UWMadison?.CdisOptionMapper);
+    const module = window.ExternalModules?.UWMadison?.ClinicalTerminologyMapper;
     const appEl = document.getElementById('cdis-option-mapper-app');
     if (!appEl) return;
+
+    const escapeHtml = (str) => String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const computeIsMatch = (field) => {
+        if (!field.is_multiple_choice) return false;
+        const existingCodes = Object.keys(field.current_choices || {}).map(String);
+        const targetCodes = (field.target_concepts || []).map(c => String(c.code));
+        if (existingCodes.length === 0 || existingCodes.length !== targetCodes.length) return false;
+        const targetSet = new Set(targetCodes);
+        const existingSet = new Set(existingCodes);
+        if (existingSet.size !== targetSet.size) return false;
+        for (const code of existingSet) {
+            if (!targetSet.has(code)) return false;
+        }
+        return true;
+    };
+
+    const getFieldTypeLabels = (elementType, targetCount) => {
+        const isCheckbox = elementType === 'checkbox' || elementType === 'advcheckbox';
+        const currentTypeLabel = elementType === 'select'
+            ? 'dropdown'
+            : (isCheckbox ? 'checkbox' : (elementType === 'radio' ? 'radio' : (elementType || 'text')));
+        const targetTypeLabel = isCheckbox ? 'checkbox' : (targetCount > 6 ? 'dropdown' : 'radio');
+        return { currentTypeLabel, targetTypeLabel };
+    };
 
     let state = {
         loading: true,
@@ -11,7 +41,6 @@ document.addEventListener('DOMContentLoaded', () => {
         canModify: false,
         fields: [],
         activeModalField: null,
-        modalTargetEnum: '',
         modalConcepts: [],
         modalSearchQuery: '',
         modalSearchResults: null,
@@ -23,7 +52,6 @@ document.addEventListener('DOMContentLoaded', () => {
         isApplying: false,
         isSaving: false,
         modalInitialState: null,
-        inspectorOpen: false,
         inspectorModalOpen: false,
         confirmModalOpen: false,
         addFieldModalOpen: false,
@@ -35,7 +63,6 @@ document.addEventListener('DOMContentLoaded', () => {
         fhirPayloadText: '',
         isInspecting: false,
         detectedConcepts: null,
-        cachedDdpDetected: null,
         dbMissing: false,
         dbMissingError: '',
         searchCache: {}
@@ -182,39 +209,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const handlePresetChange = async (fieldName, presetId) => {
-        const field = state.fields.find(f => f.field_name === fieldName);
-        if (!field) return;
-
-        field.selected_preset_id = presetId;
-
-        try {
-            const res = await module.ajax('get_valueset_options', { valueset_id: presetId });
-            if (res.success) {
-                field.target_concepts = res.concepts || [];
-                field.target_vs_title = res.valueset ? res.valueset.title : presetId;
-                const targetCodes = field.target_concepts.map(c => c.code);
-                const existingCodes = Object.keys(field.current_choices || {});
-                const diff = existingCodes.filter(c => !targetCodes.includes(c));
-
-                field.is_match = (diff.length === 0 && existingCodes.length > 0);
-                field.mismatch_reasons = field.is_match ? [] : [`${diff.length} codes do not match standard`];
-
-                if (state.activeModalField && state.activeModalField.field_name === fieldName) {
-                    state.activeModalField = field;
-                    state.modalConcepts = field.target_concepts;
-                    state.modalTargetEnum = res.formatted_enum;
-                }
-            } else {
-                alert(res.error || 'Failed to load options for the selected ValueSet.');
-            }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            render();
-        }
-    };
-
     const parseFhirPayload = async () => {
         const textarea = document.getElementById('cdis-fhir-input');
         const text = textarea ? textarea.value.trim() : (state.fhirPayloadText || '');
@@ -231,7 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await module.ajax('parse_fhir_payload', { fhir_json: text });
             if (res.success) {
                 state.detectedConcepts = res.detected_concepts || [];
-                state.cachedDdpDetected = null;
             } else {
                 alert(res.error || 'Failed to parse FHIR message.');
             }
@@ -244,32 +237,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const checkCachedCdpData = async () => {
-        state.isInspecting = true;
-        renderInspectorModal();
-
-        try {
-            const res = await module.ajax('detect_from_cached_cdp', {});
-            if (res.success) {
-                state.cachedDdpDetected = res.detected || [];
-                state.detectedConcepts = null;
-            } else {
-                alert(res.error || 'Failed to retrieve cached CDP data.');
-            }
-        } catch (e) {
-            console.error(e);
-            alert('Failed to inspect cached data.');
-        } finally {
-            state.isInspecting = false;
-            renderInspectorModal();
-        }
-    };
-
-    const applyDetectedValueSet = async (fieldName, valueSetId) => {
+    const applyDetectedValueSet = async (fieldName, valueSetId, valueSetTitle, valueSetPackage) => {
         state.inspectorModalOpen = false;
         renderInspectorModal();
-        await handlePresetChange(fieldName, valueSetId);
-        openDiffModal(fieldName);
+        await openDiffModal(fieldName);
+        await selectModalValueSet(fieldName, valueSetId, valueSetTitle, valueSetPackage);
     };
 
     const openDiffModal = async (fieldName) => {
@@ -283,8 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
             target_vs_title: field.target_vs_title,
             target_vs_package: field.target_vs_package,
             target_concepts: field.target_concepts ? [...field.target_concepts] : [],
-            is_match: field.is_match,
-            mismatch_reasons: field.mismatch_reasons ? [...field.mismatch_reasons] : []
+            is_match: field.is_match
         };
 
         state.activeModalField = field;
@@ -295,16 +266,12 @@ document.addEventListener('DOMContentLoaded', () => {
         state.modalSearchScrollTop = 0;
         state.isSaving = false;
 
-        const lines = state.modalConcepts.map(c => `${c.code}, ${c.display}`);
-        state.modalTargetEnum = lines.join(' \\n ');
-
         renderModal();
     };
 
     const closeModal = () => {
         state.activeModalField = null;
         state.modalInitialState = null;
-        state.modalTargetEnum = '';
         state.modalConcepts = [];
         state.modalSearchQuery = '';
         state.modalSearchResults = null;
@@ -324,7 +291,6 @@ document.addEventListener('DOMContentLoaded', () => {
             field.target_vs_package = state.modalInitialState.target_vs_package;
             field.target_concepts = state.modalInitialState.target_concepts;
             field.is_match = state.modalInitialState.is_match;
-            field.mismatch_reasons = state.modalInitialState.mismatch_reasons;
         }
         closeModal();
     };
@@ -476,8 +442,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const render = () => {
         if (state.dbMissing) {
-            container.innerHTML = `
-                <div class="cdis-container">
+            appEl.innerHTML = `
+                <div class="cdis-wrapper">
                     <div class="cdis-card" style="text-align: center; padding: 48px 24px; max-width: 680px; margin: 40px auto; border-top: 4px solid #ef4444; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
                         <i class="fas fa-database fa-3x" style="color: #ef4444; margin-bottom: 16px;"></i>
                         <h3 style="color: #0f172a; margin-bottom: 8px; font-weight: 700;">Terminology Database Not Initialized</h3>
@@ -568,7 +534,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td colspan="6" class="cdis-empty-state">
                         <i class="fas fa-info-circle fa-2x" style="color: #94a3b8; margin-bottom: 8px;"></i>
                         <p style="margin-bottom: 4px; font-weight: 600; color: #1e293b;">No fields currently in Option Mapper.</p>
-                        <small style="color: #64748b;">Click <strong>Add Field</strong> above to add any text, radio, or dropdown field from your project, or configure CDIS mapping in Clinical Data Pull.</small>
+                        <small style="color: #64748b;">Click <strong>Add Field</strong> above to add any text, radio, dropdown, or checkbox field from your project, or configure CDIS mapping in Clinical Data Pull.</small>
                     </td>
                 </tr>
             `;
@@ -579,7 +545,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     : (f.is_match
                         ? `<span class="cdis-badge cdis-badge-success"><i class="fas fa-check-circle"></i> Matched</span>`
                         : (!f.is_multiple_choice
-                            ? `<span class="cdis-badge cdis-badge-neutral">${f.element_type}</span>`
+                            ? `<span class="cdis-badge cdis-badge-neutral">${escapeHtml(f.element_type)}</span>`
                             : `<span class="cdis-badge cdis-badge-danger"><i class="fas fa-times-circle"></i> Mismatch</span>`));
 
                 const recordWarning = f.record_count > 0
@@ -588,43 +554,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const activeVsTitle = f.target_vs_title || (f.presets?.find(p => p.id === f.selected_preset_id)?.title) || f.selected_preset_id;
                 const activePkg = f.target_vs_package || (f.presets?.find(p => p.id === f.selected_preset_id)?.package) || ((f.selected_preset_id && (f.selected_preset_id.startsWith('us-core') || f.selected_preset_id === 'omb-race-category' || f.selected_preset_id === 'omb-ethnicity-category')) ? 'US Core v3.1.1' : 'FHIR R4');
-                const usCoreBadge = (activePkg && activePkg.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 6px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${activePkg}</span>` : '';
+                const usCoreBadge = (activePkg && activePkg.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 6px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${escapeHtml(activePkg)}</span>` : '';
 
                 const vsCellText = f.selected_preset_id ? `
                     <div style="font-weight: 600; color: #1e293b; font-size: 0.875rem; display: flex; align-items: center; flex-wrap: wrap;">
-                        <span>${activeVsTitle}</span>
+                        <span>${escapeHtml(activeVsTitle)}</span>
                         ${usCoreBadge}
                     </div>
-                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;"><code>${f.selected_preset_id}</code></div>
+                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;"><code>${escapeHtml(f.selected_preset_id)}</code></div>
                 ` : `
                     <span style="color: #94a3b8; font-size: 0.85rem; font-style: italic;">Unmapped</span>
                 `;
 
                 const currentCount = Object.keys(f.current_choices || {}).length;
                 const targetCount = (f.target_concepts || []).length;
-                const currentTypeLabel = f.element_type === 'select' ? 'dropdown' : (f.element_type === 'radio' ? 'radio' : (f.element_type || 'text'));
-                const targetTypeLabel = targetCount > 6 ? 'dropdown' : 'radio';
+                const { currentTypeLabel, targetTypeLabel } = getFieldTypeLabels(f.element_type, targetCount);
                 const comparisonText = f.is_multiple_choice
                     ? (f.selected_preset_id ? `${currentCount} &rarr; ${targetCount}` : `${currentCount} &rarr; 0`)
                     : `Text &rarr; ${targetCount}`;
                 const typeTransition = (f.selected_preset_id && targetCount > 0)
                     ? (currentTypeLabel.toLowerCase() === targetTypeLabel.toLowerCase()
-                        ? `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${targetTypeLabel}</div>`
-                        : `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${currentTypeLabel} &rarr; <strong>${targetTypeLabel}</strong></div>`)
-                    : `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${currentTypeLabel}</div>`;
+                        ? `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(targetTypeLabel)}</div>`
+                        : `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(currentTypeLabel)} &rarr; <strong>${escapeHtml(targetTypeLabel)}</strong></div>`)
+                    : `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(currentTypeLabel)}</div>`;
 
                 const sourceHtml = f.is_custom ? `
                     <span class="badge" style="background: #f1f5f9; color: #475569; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; border: 1px solid #cbd5e1; font-weight: 600;">
                         <i class="fas fa-user-edit" style="color: #64748b; font-size: 0.68rem; margin-right: 3px;"></i>Project Field
                     </span>
-                    <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">Form: ${f.form_name}</div>
+                    <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">Form: ${escapeHtml(f.form_name)}</div>
                 ` : `
-                    <code>${f.external_source}</code>
-                    <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">Form: ${f.form_name}</div>
+                    <code>${escapeHtml(f.external_source)}</code>
+                    <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">Form: ${escapeHtml(f.form_name)}</div>
                 `;
 
                 const removeBtn = f.is_custom ? `
-                    <button class="cdis-btn cdis-btn-sm btn-remove-custom-field" data-field="${f.field_name}" title="Remove from Option Mapper" style="margin-left: 4px; color: #ef4444; border: 1px solid #fca5a5; background: #fff; padding: 4px 8px;">
+                    <button class="cdis-btn cdis-btn-sm btn-remove-custom-field" data-field="${escapeHtml(f.field_name)}" title="Remove from Option Mapper" style="margin-left: 4px; color: #ef4444; border: 1px solid #fca5a5; background: #fff; padding: 4px 8px;">
                         <i class="fas fa-trash-alt"></i>
                     </button>
                 ` : '';
@@ -632,8 +597,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `
                     <tr>
                         <td>
-                            <strong>${f.field_name}</strong>
-                            <div style="font-size: 0.8rem; color: #64748b;">${f.field_label || ''}</div>
+                            <strong>${escapeHtml(f.field_name)}</strong>
+                            <div style="font-size: 0.8rem; color: #64748b;">${escapeHtml(f.field_label || '')}</div>
                             ${recordWarning}
                         </td>
                         <td>
@@ -648,7 +613,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${typeTransition}
                         </td>
                         <td style="white-space: nowrap; text-align: right;">
-                            <button class="cdis-btn cdis-btn-secondary cdis-btn-sm btn-edit-field" data-field="${f.field_name}">
+                            <button class="cdis-btn cdis-btn-secondary cdis-btn-sm btn-edit-field" data-field="${escapeHtml(f.field_name)}">
                                 <i class="fas fa-edit"></i> Edit
                             </button>
                             ${removeBtn}
@@ -733,7 +698,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i> No Pre-Expanded Concepts in HL7 Package
                     </div>
                     <div style="font-size: 0.75rem; color: #78350f; line-height: 1.45; margin-bottom: 6px;">
-                        This ValueSet (<code>${field.selected_preset_id}</code>) is an <em>intensional definition</em> referencing an external or proprietary code system (e.g., AMA CPT, SNOMED CT, or LOINC).
+                        This ValueSet (<code>${escapeHtml(field.selected_preset_id)}</code>) is an <em>intensional definition</em> referencing an external or proprietary code system (e.g., AMA CPT, SNOMED CT, or LOINC).
                     </div>
                     <div style="font-size: 0.725rem; color: #92400e; line-height: 1.4;">
                         HL7 packages cannot legally redistribute licensed code sets, and large codebooks (10,000+ codes) cannot be used as static multiple-choice options in REDCap.
@@ -742,7 +707,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
         }
         return targetConcepts.map(c =>
-            `<div class="cdis-choice-item"><strong>${c.code}</strong>: ${c.display}</div>`
+            `<div class="cdis-choice-item"><strong>${escapeHtml(c.code)}</strong>: ${escapeHtml(c.display)}</div>`
         ).join('');
     };
 
@@ -756,7 +721,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const pkgLabel = vsPackage || ((vsId && (vsId.startsWith('us-core') || vsId === 'omb-race-category' || vsId === 'omb-ethnicity-category')) ? 'US Core v3.1.1' : 'FHIR R4');
-        const usCoreTag = (pkgLabel && pkgLabel.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 6px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${pkgLabel}</span>` : '';
+        const usCoreTag = (pkgLabel && pkgLabel.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 6px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${escapeHtml(pkgLabel)}</span>` : '';
 
         // 1. Immediately update local field state
         field.selected_preset_id = vsId;
@@ -773,8 +738,8 @@ document.addEventListener('DOMContentLoaded', () => {
             bannerEl.innerHTML = `
                 <div>
                     <span style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: #64748b;">Active Selection:</span>
-                    <strong style="margin-left: 6px; color: #0f172a;">${vsTitle || vsId}</strong>
-                    <code style="font-size: 0.75rem; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">${vsId}</code>
+                    <strong style="margin-left: 6px; color: #0f172a;">${escapeHtml(vsTitle || vsId)}</strong>
+                    <code style="font-size: 0.75rem; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">${escapeHtml(vsId)}</code>
                     ${usCoreTag}
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -810,13 +775,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update selection dots in-place so scroll is completely untouched
         if (resultsEl) {
             resultsEl.querySelectorAll('.cdis-modal-result-item').forEach(el => {
-                const action = el.getAttribute('data-action');
-                const isSelected = (action === 'select' && el.getAttribute('data-vs-id') === vsId);
+                const isSelected = (el.getAttribute('data-vs-id') === vsId && (el.getAttribute('data-vs-package') || 'FHIR R4') === pkgLabel);
                 el.classList.toggle('cdis-result-active', isSelected);
                 const dot = el.querySelector('.cdis-selection-dot');
                 if (dot) {
                     dot.classList.toggle('selected', isSelected);
-                    dot.classList.remove('unmapped');
                 }
             });
         }
@@ -824,20 +787,14 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await module.ajax('get_valueset_options', { valueset_id: vsId, package: pkgLabel });
 
-            if (field.selected_preset_id === vsId) {
+            if (field.selected_preset_id === vsId && field.target_vs_package === pkgLabel) {
                 if (res.success) {
                     field.target_concepts = res.concepts || [];
                     field.target_vs_title = res.valueset ? res.valueset.title : (vsTitle || vsId);
                     field.target_vs_package = res.valueset?.package || pkgLabel;
-                    const targetCodes = field.target_concepts.map(c => c.code);
-                    const existingCodes = Object.keys(field.current_choices || {});
-                    const diff = existingCodes.filter(c => !targetCodes.includes(c));
-
-                    field.is_match = (diff.length === 0 && existingCodes.length > 0);
-                    field.mismatch_reasons = field.is_match ? [] : [`${diff.length} codes do not match standard`];
+                    field.is_match = computeIsMatch(field);
 
                     state.modalConcepts = field.target_concepts;
-                    state.modalTargetEnum = res.formatted_enum;
                 } else {
                     alert(res.error || 'Failed to load options for the selected ValueSet.');
                 }
@@ -845,15 +802,14 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.error(e);
         } finally {
-            if (field.selected_preset_id === vsId) {
+            if (field.selected_preset_id === vsId && field.target_vs_package === pkgLabel) {
                 state.modalLoadingConcepts = false;
                 const targetConcepts = state.modalConcepts || [];
                 const targetItems = renderTargetConceptsHtml(field, targetConcepts);
 
                 if (conceptsColEl) {
-                    const currType = field.element_type === 'select' ? 'dropdown' : (field.element_type === 'radio' ? 'radio' : (field.element_type || 'text'));
-                    const targetType = targetConcepts.length > 6 ? 'dropdown' : 'radio';
-                    const typeBadgeText = currType.toLowerCase() === targetType.toLowerCase() ? targetType : `&rarr; ${targetType}`;
+                    const { currentTypeLabel: currType, targetTypeLabel: targetType } = getFieldTypeLabels(field.element_type, targetConcepts.length);
+                    const typeBadgeText = currType.toLowerCase() === targetType.toLowerCase() ? escapeHtml(targetType) : `&rarr; ${escapeHtml(targetType)}`;
 
                     conceptsColEl.innerHTML = `
                         <div class="cdis-diff-col-title" style="display: flex; justify-content: space-between; align-items: center;">
@@ -903,11 +859,9 @@ document.addEventListener('DOMContentLoaded', () => {
         field.target_vs_title = '';
         field.target_concepts = [];
         field.is_match = false;
-        field.mismatch_reasons = ['Field explicitly unmapped'];
 
         state.activeModalField = field;
         state.modalConcepts = [];
-        state.modalTargetEnum = '';
         state.modalLoadingConcepts = false;
 
         // In-place UI update
@@ -947,14 +901,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (resultsEl) {
             resultsEl.querySelectorAll('.cdis-modal-result-item').forEach(el => {
-                const action = el.getAttribute('data-action');
-                const isUnmapped = (action === 'deselect');
-                el.classList.toggle('cdis-result-active', isUnmapped);
+                el.classList.remove('cdis-result-active');
                 const dot = el.querySelector('.cdis-selection-dot');
                 if (dot) {
-                    dot.classList.toggle('selected', isUnmapped);
-                    if (isUnmapped) dot.classList.add('unmapped');
-                    else dot.classList.remove('unmapped');
+                    dot.classList.remove('selected');
                 }
             });
         }
@@ -965,6 +915,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!resultsEl || !state.activeModalField) return;
 
         const field = state.activeModalField;
+        const activePkg = field.target_vs_package || 'FHIR R4';
 
         if (state.modalIsSearching) {
             resultsEl.innerHTML = `
@@ -976,40 +927,40 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        const getDefaultPkg = (item) => item.package || ((item.id.startsWith('us-core') || item.id === 'omb-race-category' || item.id === 'omb-ethnicity-category') ? 'US Core v3.1.1' : 'FHIR R4');
         const recommendations = field.presets || [];
-        const recIds = new Set(recommendations.map(r => r.id));
+        const recKeys = new Set(recommendations.map(r => `${r.id}::${getDefaultPkg(r)}`));
 
         // Recommendations HTML at top
         let recHtml = '';
         if (recommendations.length > 0) {
             recHtml = recommendations.map(rec => {
-                const isSelected = rec.id === field.selected_preset_id;
-                const pkg = rec.package || ((rec.id.startsWith('us-core') || rec.id === 'omb-race-category' || rec.id === 'omb-ethnicity-category') ? 'US Core v3.1.1' : 'FHIR R4');
-                const usCoreTag = (pkg && pkg.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 4px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${pkg}</span>` : '';
+                const pkg = getDefaultPkg(rec);
+                const isSelected = rec.id === field.selected_preset_id && pkg === activePkg;
+                const usCoreTag = (pkg && pkg.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 4px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${escapeHtml(pkg)}</span>` : '';
                 const conceptCountTag = rec.concept_count !== undefined
                     ? (rec.concept_count === 0
                         ? (rec.catalog_size !== undefined
-                            ? `<span class="cdis-badge" style="font-size:0.7rem; color:#0369a1; background:#e0f2fe; border:1px solid #bae6fd; margin-left:4px;" title="${rec.catalog_source || ''} - ${rec.catalog_notes || ''}">${typeof rec.catalog_size === 'number' ? rec.catalog_size.toLocaleString() : rec.catalog_size}</span>`
+                            ? `<span class="cdis-badge" style="font-size:0.7rem; color:#0369a1; background:#e0f2fe; border:1px solid #bae6fd; margin-left:4px;" title="${escapeHtml(rec.catalog_source || '')} - ${escapeHtml(rec.catalog_notes || '')}">${typeof rec.catalog_size === 'number' ? rec.catalog_size.toLocaleString() : escapeHtml(rec.catalog_size)}</span>`
                             : `<span class="cdis-badge cdis-badge-neutral" style="font-size:0.7rem; color:#b45309; background:#fffbeb; border:1px solid #fde68a; margin-left:4px;" title="Intensional definition with no pre-expanded concepts in HL7 package"><i class="fas fa-exclamation-triangle" style="margin-right:2px;"></i> 0 concepts</span>`)
                         : `<span style="font-size:0.725rem; color:#64748b; margin-left:4px;">(${rec.concept_count} concepts)</span>`)
                     : '';
 
                 return `
                     <div class="cdis-modal-result-item cdis-rec-item ${isSelected ? 'cdis-result-active' : ''}"
-                         data-action="select"
-                         data-vs-id="${rec.id}"
+                         data-vs-id="${escapeHtml(rec.id)}"
                          data-vs-title="${encodeURIComponent(rec.title)}"
-                         data-vs-package="${pkg}">
+                         data-vs-package="${escapeHtml(pkg)}">
                         <div style="flex: 1;">
                             <div style="font-weight: 600; font-size: 0.85rem; color: #0f172a; display: flex; align-items: center; flex-wrap: wrap;">
                                 <i class="fas fa-star" style="color: #eab308; margin-right: 4px;"></i>
-                                <span>${rec.title}</span>
+                                <span>${escapeHtml(rec.title)}</span>
                                 <span class="cdis-badge cdis-badge-rec" style="margin-left: 4px;">Recommended</span>
                                 ${usCoreTag}
-                                <code style="font-size: 0.75rem; background: #f1f5f9; padding: 1px 5px; border-radius: 3px; margin-left: 4px;">${rec.id}</code>
+                                <code style="font-size: 0.75rem; background: #f1f5f9; padding: 1px 5px; border-radius: 3px; margin-left: 4px;">${escapeHtml(rec.id)}</code>
                                 ${conceptCountTag}
                             </div>
-                            ${rec.description ? `<div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">${rec.description}</div>` : ''}
+                            ${rec.description ? `<div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">${escapeHtml(rec.description)}</div>` : ''}
                         </div>
                         <div>
                             <div class="cdis-selection-dot ${isSelected ? 'selected' : ''}" title="${isSelected ? 'Selected' : 'Select'}"></div>
@@ -1021,7 +972,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Search results or default alphabetical results (exclude items in recommendations)
         const candidateItems = (state.modalSearchResults !== null ? state.modalSearchResults : (state.defaultValuesets || []));
-        const searchItems = candidateItems.filter(vs => !recIds.has(vs.id));
+        const searchItems = candidateItems.filter(vs => !recKeys.has(`${vs.id}::${getDefaultPkg(vs)}`));
         const count = searchItems.length;
         const sectionHeader = state.modalSearchQuery
             ? `Search Results (${count})`
@@ -1031,38 +982,37 @@ document.addEventListener('DOMContentLoaded', () => {
         if (count === 0) {
             itemsHtml = `
                 <div style="text-align: center; padding: 16px 12px; color: #94a3b8; font-size: 0.85rem;">
-                    <i class="fas fa-search" style="margin-right: 6px;"></i> No additional ValueSets found matching "${state.modalSearchQuery}".
+                    <i class="fas fa-search" style="margin-right: 6px;"></i> No additional ValueSets found matching "${escapeHtml(state.modalSearchQuery)}".
                 </div>
             `;
         } else {
             itemsHtml = searchItems.map(vs => {
-                const isSelected = vs.id === field.selected_preset_id;
-                const pkg = vs.package || ((vs.id.startsWith('us-core') || vs.id === 'omb-race-category' || vs.id === 'omb-ethnicity-category') ? 'US Core v3.1.1' : 'FHIR R4');
-                const usCoreTag = (pkg && pkg.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 4px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${pkg}</span>` : '';
-                const urnTag = vs.urn ? `<span style="font-size:0.725rem; color:#64748b; margin-left:6px;">URN: <code>${vs.urn}</code></span>` : '';
+                const pkg = getDefaultPkg(vs);
+                const isSelected = vs.id === field.selected_preset_id && pkg === activePkg;
+                const usCoreTag = (pkg && pkg.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 4px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${escapeHtml(pkg)}</span>` : '';
+                const urnTag = vs.urn ? `<span style="font-size:0.725rem; color:#64748b; margin-left:6px;">URN: <code>${escapeHtml(vs.urn)}</code></span>` : '';
                 const conceptCountTag = vs.concept_count !== undefined
                     ? (vs.concept_count === 0
                         ? (vs.catalog_size !== undefined
-                            ? `<span class="cdis-badge" style="font-size:0.7rem; color:#0369a1; background:#e0f2fe; border:1px solid #bae6fd; margin-left:4px;" title="${vs.catalog_source || ''} - ${vs.catalog_notes || ''}">${typeof vs.catalog_size === 'number' ? vs.catalog_size.toLocaleString() : vs.catalog_size}</span>`
+                            ? `<span class="cdis-badge" style="font-size:0.7rem; color:#0369a1; background:#e0f2fe; border:1px solid #bae6fd; margin-left:4px;" title="${escapeHtml(vs.catalog_source || '')} - ${escapeHtml(vs.catalog_notes || '')}">${typeof vs.catalog_size === 'number' ? vs.catalog_size.toLocaleString() : escapeHtml(vs.catalog_size)}</span>`
                             : `<span class="cdis-badge cdis-badge-neutral" style="font-size:0.7rem; color:#b45309; background:#fffbeb; border:1px solid #fde68a; margin-left:4px;" title="Intensional definition with no pre-expanded concepts in HL7 package"><i class="fas fa-exclamation-triangle" style="margin-right:2px;"></i> 0 concepts</span>`)
                         : `<span style="font-size:0.725rem; color:#64748b; margin-left:4px;">(${vs.concept_count} concepts)</span>`)
                     : '';
                 return `
                     <div class="cdis-modal-result-item ${isSelected ? 'cdis-result-active' : ''}"
-                         data-action="select"
-                         data-vs-id="${vs.id}"
+                         data-vs-id="${escapeHtml(vs.id)}"
                          data-vs-title="${encodeURIComponent(vs.title || vs.name)}"
-                         data-vs-package="${pkg}">
+                         data-vs-package="${escapeHtml(pkg)}">
                         <div style="flex: 1;">
                             <div style="font-weight: 600; font-size: 0.85rem; color: #0f172a; display: flex; align-items: center; flex-wrap: wrap;">
                                 <i class="fas fa-book" style="color: #2563eb; margin-right: 4px;"></i>
-                                <span>${vs.title || vs.name}</span>
+                                <span>${escapeHtml(vs.title || vs.name)}</span>
                                 ${usCoreTag}
-                                <code style="font-size: 0.75rem; background: #f1f5f9; padding: 1px 5px; border-radius: 3px; margin-left: 4px;">${vs.id}</code>
+                                <code style="font-size: 0.75rem; background: #f1f5f9; padding: 1px 5px; border-radius: 3px; margin-left: 4px;">${escapeHtml(vs.id)}</code>
                                 ${conceptCountTag}
                                 ${urnTag}
                             </div>
-                            ${vs.description ? `<div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">${vs.description}</div>` : ''}
+                            ${vs.description ? `<div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">${escapeHtml(vs.description)}</div>` : ''}
                         </div>
                         <div>
                             <div class="cdis-selection-dot ${isSelected ? 'selected' : ''}" title="${isSelected ? 'Selected' : 'Select'}"></div>
@@ -1090,20 +1040,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         resultsEl.querySelectorAll('.cdis-modal-result-item').forEach(item => {
             item.addEventListener('click', async () => {
-                const action = item.getAttribute('data-action');
-                if (action === 'deselect') {
-                    if (field.selected_preset_id) {
-                        state.modalSearchScrollTop = resultsEl.scrollTop;
-                        await deselectModalValueSet(field.field_name);
-                    }
-                } else if (action === 'select') {
-                    const vsId = item.getAttribute('data-vs-id');
-                    const vsTitle = decodeURIComponent(item.getAttribute('data-vs-title') || vsId);
-                    const vsPackage = item.getAttribute('data-vs-package') || 'FHIR R4';
-                    if (field.selected_preset_id !== vsId) {
-                        state.modalSearchScrollTop = resultsEl.scrollTop;
-                        await selectModalValueSet(field.field_name, vsId, vsTitle, vsPackage);
-                    }
+                const vsId = item.getAttribute('data-vs-id');
+                const vsTitle = decodeURIComponent(item.getAttribute('data-vs-title') || vsId);
+                const vsPackage = item.getAttribute('data-vs-package') || 'FHIR R4';
+                if (field.selected_preset_id !== vsId || (field.target_vs_package || 'FHIR R4') !== vsPackage) {
+                    state.modalSearchScrollTop = resultsEl.scrollTop;
+                    await selectModalValueSet(field.field_name, vsId, vsTitle, vsPackage);
                 }
             });
         });
@@ -1125,7 +1067,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetConcepts = state.modalConcepts || [];
 
         const currentItems = Object.entries(currentChoices).map(([code, label]) =>
-            `<div class="cdis-choice-item"><strong>${code}</strong>: ${label}</div>`
+            `<div class="cdis-choice-item"><strong>${escapeHtml(code)}</strong>: ${escapeHtml(label)}</div>`
         ).join('') || '<div style="color:#94a3b8;font-size:0.8rem;padding:6px;">No choices defined</div>';
 
         const targetItems = state.modalLoadingConcepts
@@ -1142,10 +1084,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const canUpdate = !state.modalLoadingConcepts && state.canModify && !isUnmapped && targetConcepts.length > 0;
         const activeVsTitle = field.target_vs_title || (field.presets?.find(p => p.id === field.selected_preset_id)?.title) || field.selected_preset_id;
         const activeVsPkg = field.target_vs_package || (field.presets?.find(p => p.id === field.selected_preset_id)?.package) || ((field.selected_preset_id && (field.selected_preset_id.startsWith('us-core') || field.selected_preset_id === 'omb-race-category' || field.selected_preset_id === 'omb-ethnicity-category')) ? 'US Core v3.1.1' : 'FHIR R4');
-        const activeVsBadge = (activeVsPkg && activeVsPkg.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 6px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${activeVsPkg}</span>` : '';
-        const currType = field.element_type === 'select' ? 'dropdown' : (field.element_type === 'radio' ? 'radio' : (field.element_type || 'text'));
-        const targetType = targetConcepts.length > 6 ? 'dropdown' : 'radio';
-        const typeBadgeText = currType.toLowerCase() === targetType.toLowerCase() ? targetType : `&rarr; ${targetType}`;
+        const activeVsBadge = (activeVsPkg && activeVsPkg.startsWith('US Core')) ? `<span class="cdis-badge cdis-badge-uscore" style="margin-left: 6px;"><i class="fas fa-flag-usa" style="margin-right: 3px;"></i>${escapeHtml(activeVsPkg)}</span>` : '';
+        const { currentTypeLabel: currType, targetTypeLabel: targetType } = getFieldTypeLabels(field.element_type, targetConcepts.length);
+        const typeBadgeText = currType.toLowerCase() === targetType.toLowerCase() ? escapeHtml(targetType) : `&rarr; ${escapeHtml(targetType)}`;
 
         container.innerHTML = `
             <div class="cdis-modal-overlay">
@@ -1153,8 +1094,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="cdis-modal-header">
                         <div class="cdis-modal-title">
                             <i class="fas fa-edit" style="color: #2563eb; margin-right: 6px;"></i>
-                            Map Field Choices: <code>${field.field_name}</code>
-                            ${field.field_label ? `<span style="font-size:0.85rem; font-weight:normal; color:#64748b; margin-left:8px;">(${field.field_label})</span>` : ''}
+                            Map Field Choices: <code>${escapeHtml(field.field_name)}</code>
+                            ${field.field_label ? `<span style="font-size:0.85rem; font-weight:normal; color:#64748b; margin-left:8px;">(${escapeHtml(field.field_label)})</span>` : ''}
                         </div>
                         <button class="cdis-modal-close" id="btn-close-modal">&times;</button>
                     </div>
@@ -1169,7 +1110,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                             <input type="text" id="modal-vs-search-input" class="cdis-search-input" 
                                    placeholder="Type to filter ValueSets (e.g. 'gender', 'race', 'condition')..."
-                                   value="${state.modalSearchQuery || ''}" style="margin-bottom: 0;">
+                                   value="${escapeHtml(state.modalSearchQuery || '')}" style="margin-bottom: 0;">
                             <div id="modal-vs-search-results" class="cdis-modal-search-results" style="display: block;">
                             </div>
 
@@ -1177,8 +1118,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div>
                                     <span style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: #64748b;">Active Selection:</span>
                                     ${field.selected_preset_id ? `
-                                        <strong style="margin-left: 6px; color: #0f172a;">${activeVsTitle}</strong>
-                                        <code style="font-size: 0.75rem; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">${field.selected_preset_id}</code>
+                                        <strong style="margin-left: 6px; color: #0f172a;">${escapeHtml(activeVsTitle)}</strong>
+                                        <code style="font-size: 0.75rem; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">${escapeHtml(field.selected_preset_id)}</code>
                                         ${activeVsBadge}
                                     ` : `
                                         <span class="cdis-badge cdis-badge-neutral" style="margin-left: 6px;">None / Unmapped</span>
@@ -1204,7 +1145,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="cdis-diff-col">
                                 <div class="cdis-diff-col-title" style="display: flex; justify-content: space-between; align-items: center;">
                                     <span>Current REDCap Choices (${Object.keys(currentChoices).length})</span>
-                                    <span class="cdis-badge cdis-badge-neutral" style="font-size: 0.7rem; text-transform: uppercase;">${currType}</span>
+                                    <span class="cdis-badge cdis-badge-neutral" style="font-size: 0.7rem; text-transform: uppercase;">${escapeHtml(currType)}</span>
                                 </div>
                                 <div style="max-height: 160px; overflow-y: auto;">
                                     ${currentItems}
@@ -1331,30 +1272,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${state.detectedConcepts.map(d => {
                         const vsBadges = (d.matched_valuesets || []).map(vs => {
                             const alignBtn = d.matched_redcap_field
-                                ? `<button class="cdis-btn cdis-btn-primary cdis-btn-sm btn-align-detected" data-field="${d.matched_redcap_field}" data-vs="${vs.id}">
-                                     <i class="fas fa-link"></i> Align '${d.matched_redcap_field}' to ${vs.title}
+                                ? `<button class="cdis-btn cdis-btn-primary cdis-btn-sm btn-align-detected" data-field="${escapeHtml(d.matched_redcap_field)}" data-vs="${escapeHtml(vs.id)}" data-vs-title="${encodeURIComponent(vs.title || vs.id)}" data-vs-package="${escapeHtml(vs.package || 'FHIR R4')}">
+                                     <i class="fas fa-link"></i> Align '${escapeHtml(d.matched_redcap_field)}' to ${escapeHtml(vs.title)}
                                    </button>`
                                 : '';
                             return `
                                 <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:4px; padding:4px 0;">
-                                    <div><i class="fas fa-book" style="color:#2563eb;"></i> <strong>${vs.title}</strong> (<code>${vs.id}</code>)</div>
+                                    <div><i class="fas fa-book" style="color:#2563eb;"></i> <strong>${escapeHtml(vs.title)}</strong> (<code>${escapeHtml(vs.id)}</code>)</div>
                                     ${alignBtn}
                                 </div>
                             `;
                         }).join('') || '<div style="color:#94a3b8; font-size:0.8rem;">No exact ValueSet match found</div>';
 
                         const fieldTag = d.matched_redcap_field
-                            ? `<span class="cdis-badge cdis-badge-success"><i class="fas fa-check"></i> Mapped to '${d.matched_redcap_field}'</span>`
+                            ? `<span class="cdis-badge cdis-badge-success"><i class="fas fa-check"></i> Mapped to '${escapeHtml(d.matched_redcap_field)}'</span>`
                             : `<span class="cdis-badge cdis-badge-neutral">Unmapped in Project</span>`;
 
                         return `
                             <div class="cdis-detected-item">
                                 <div style="flex:1;">
                                     <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
-                                        <code>${d.path}</code> &rarr; <strong>${d.code}</strong> (${d.display})
+                                        <code>${escapeHtml(d.path)}</code> &rarr; <strong>${escapeHtml(d.code)}</strong> (${escapeHtml(d.display)})
                                         ${fieldTag}
                                     </div>
-                                    <div style="font-size:0.75rem; color:#64748b;">System: <code>${d.system || 'default'}</code></div>
+                                    <div style="font-size:0.75rem; color:#64748b;">System: <code>${escapeHtml(d.system || 'default')}</code></div>
                                     <div style="margin-top:6px; border-top:1px dashed #cbd5e1; padding-top:4px;">
                                         ${vsBadges}
                                     </div>
@@ -1385,7 +1326,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <i class="fas fa-file-code"></i> Load Example
                             </button>
                         </div>
-                        <textarea id="cdis-fhir-input" class="cdis-textarea" style="height: 150px;" placeholder="Paste FHIR JSON here...">${state.fhirPayloadText || ''}</textarea>
+                        <textarea id="cdis-fhir-input" class="cdis-textarea" style="height: 150px;" placeholder="Paste FHIR JSON here...">${escapeHtml(state.fhirPayloadText || '')}</textarea>
                         <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
                             <button class="cdis-btn cdis-btn-primary" id="btn-parse-fhir" ${state.isInspecting ? 'disabled' : ''}>
                                 <i class="fas fa-search"></i> ${state.isInspecting ? 'Parsing...' : 'Parse & Detect ValueSets'}
@@ -1420,7 +1361,9 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.addEventListener('click', (e) => {
                 const field = e.currentTarget.getAttribute('data-field');
                 const vsId = e.currentTarget.getAttribute('data-vs');
-                applyDetectedValueSet(field, vsId);
+                const vsTitle = decodeURIComponent(e.currentTarget.getAttribute('data-vs-title') || vsId);
+                const vsPkg = e.currentTarget.getAttribute('data-vs-package') || 'FHIR R4';
+                applyDetectedValueSet(field, vsId, vsTitle, vsPkg);
             });
         });
     };
@@ -1471,12 +1414,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                     ${mismatchedFields.map(f => `
                                         <tr>
                                             <td>
-                                                <strong>${f.field_name}</strong>
+                                                <strong>${escapeHtml(f.field_name)}</strong>
                                                 ${f.record_count > 0 ? `<div style="font-size:0.75rem; color:#b45309;"><i class="fas fa-database"></i> ${f.record_count} records</div>` : ''}
                                             </td>
                                             <td>
-                                                <div style="font-weight: 600; color: #1e293b;">${f.target_vs_title || f.selected_preset_id}</div>
-                                                <code style="font-size: 0.725rem;">${f.selected_preset_id}</code>
+                                                <div style="font-weight: 600; color: #1e293b;">${escapeHtml(f.target_vs_title || f.selected_preset_id)}</div>
+                                                <code style="font-size: 0.725rem;">${escapeHtml(f.selected_preset_id)}</code>
                                             </td>
                                             <td>
                                                 <span class="cdis-badge cdis-badge-neutral">${(f.target_concepts || []).length} choices</span>
@@ -1544,14 +1487,12 @@ document.addEventListener('DOMContentLoaded', () => {
             external_source: 'Project Field',
             is_custom: true,
             current_choices: choices,
-            current_raw_enum: '',
             presets: [],
             selected_preset_id: null,
             target_vs_title: null,
             target_vs_package: 'FHIR R4',
             target_concepts: [],
             is_match: false,
-            mismatch_reasons: ['No FHIR ValueSet assigned yet'],
             record_count: 0,
             is_multiple_choice: isMulti
         };
@@ -1617,21 +1558,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="cdis-loading-centered" style="padding: 40px 20px; text-align: center;">
                     <i class="fas fa-spinner fa-spin fa-2x" style="color: #3b82f6; margin-bottom: 10px;"></i>
                     <div style="font-size: 0.9rem; color: #475569; font-weight: 600;">Loading project fields...</div>
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">Scanning text, radio, and dropdown fields</div>
+                    <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">Scanning text, radio, dropdown, and checkbox fields</div>
                 </div>
             `;
         } else if (filteredFields.length === 0) {
             bodyContent = `
                 <div style="padding: 32px 16px; text-align: center; color: #64748b;">
                     <i class="fas fa-search" style="font-size: 1.5rem; color: #94a3b8; margin-bottom: 8px;"></i>
-                    <p style="margin: 0; font-size: 0.9rem;">No eligible fields found${query ? ` matching "${state.addFieldSearchQuery}"` : ''}.</p>
+                    <p style="margin: 0; font-size: 0.9rem;">No eligible fields found${query ? ` matching "${escapeHtml(state.addFieldSearchQuery)}"` : ''}.</p>
                 </div>
             `;
         } else {
             const fieldRows = filteredFields.map(f => {
                 const typeBadgeClass = f.element_type === 'text' ? 'cdis-badge-neutral' : 'cdis-badge-uscore';
                 const typeLabel = f.element_type === 'select' ? 'dropdown' : f.element_type;
-                const choiceInfo = (f.element_type === 'radio' || f.element_type === 'select')
+                const choiceInfo = ['radio', 'select', 'checkbox', 'advcheckbox'].includes(f.element_type)
                     ? `<span style="font-size: 0.75rem; color: #64748b; margin-left: 6px;">(${f.choice_count} choices)</span>`
                     : '';
 
@@ -1639,7 +1580,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     ? `<span style="display: inline-flex; align-items: center; gap: 4px; color: #16a34a; font-size: 0.8rem; font-weight: 600; padding: 4px 10px; background: #f0fdf4; border-radius: 9999px; border: 1px solid #bbf7d0;">
                          <i class="fas fa-check" style="font-size: 0.7rem;"></i> Added
                        </span>`
-                    : `<button class="cdis-btn cdis-btn-sm cdis-btn-primary btn-do-add-field" data-field="${f.field_name}" style="padding: 4px 12px; font-weight: 600;">
+                    : `<button class="cdis-btn cdis-btn-sm cdis-btn-primary btn-do-add-field" data-field="${escapeHtml(f.field_name)}" style="padding: 4px 12px; font-weight: 600;">
                          <i class="fas fa-plus"></i> Add
                        </button>`;
 
@@ -1647,13 +1588,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="cdis-choice-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; gap: 12px; border-bottom: 1px solid #f1f5f9;">
                         <div style="flex: 1; min-width: 0;">
                             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <strong style="color: #0f172a; font-size: 0.85rem;">${f.field_name}</strong>
-                                <span class="cdis-badge ${typeBadgeClass}" style="text-transform: uppercase; font-size: 0.68rem; padding: 1px 6px;">${typeLabel}</span>
-                                <span style="font-size: 0.75rem; color: #64748b;">Form: <strong>${f.form_name}</strong></span>
+                                <strong style="color: #0f172a; font-size: 0.85rem;">${escapeHtml(f.field_name)}</strong>
+                                <span class="cdis-badge ${typeBadgeClass}" style="text-transform: uppercase; font-size: 0.68rem; padding: 1px 6px;">${escapeHtml(typeLabel)}</span>
+                                <span style="font-size: 0.75rem; color: #64748b;">Form: <strong>${escapeHtml(f.form_name)}</strong></span>
                                 ${choiceInfo}
                             </div>
                             <div style="font-size: 0.8rem; color: #475569; margin-top: 2px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
-                                ${f.field_label || '<em style="color:#94a3b8;">(No label defined)</em>'}
+                                ${f.field_label ? escapeHtml(f.field_label) : '<em style="color:#94a3b8;">(No label defined)</em>'}
                             </div>
                         </div>
                         <div style="flex-shrink: 0;">
@@ -1682,12 +1623,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="cdis-modal-body" style="padding: 18px;">
                         <p style="font-size: 0.85rem; color: #475569; margin-top: 0; margin-bottom: 12px;">
-                            Select any <strong>text, radio, or dropdown</strong> field in your project to map it to FHIR or LOINC ValueSets.
+                            Select any <strong>text, radio, dropdown, or checkbox</strong> field in your project to map it to FHIR or LOINC ValueSets.
                         </p>
                         <div style="margin-bottom: 12px;">
                             <input type="text" id="input-add-field-search" class="cdis-search-input" 
                                    placeholder="Filter fields by name, label, or form..."
-                                   value="${state.addFieldSearchQuery || ''}" style="margin: 0; font-size: 0.85rem;">
+                                   value="${escapeHtml(state.addFieldSearchQuery || '')}" style="margin: 0; font-size: 0.85rem;">
                         </div>
                         ${bodyContent}
                     </div>

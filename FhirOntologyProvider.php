@@ -20,11 +20,6 @@ class FhirOntologyProvider implements OntologyProvider
         $this->allowedPackages = $packages;
     }
 
-    public function getAllowedPackages(): array
-    {
-        return $this->allowedPackages;
-    }
-
     private function getTerminology(): TerminologyService
     {
         if ($this->terminology === null) {
