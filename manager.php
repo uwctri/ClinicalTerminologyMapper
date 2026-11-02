@@ -64,8 +64,13 @@ if ($isValid) {
                 continue;
             }
 
-            // Exclude ValueSets that already have all their concepts in the database (e.g. animal-breeds 2,370 of 2,370)
+            // Exclude sets that already have all their concepts in the database (fully expanded/loaded initially)
             if (is_numeric($cachedTotalVal) && $count > 0 && $count >= (int)$cachedTotalVal) {
+                continue;
+            }
+
+            // Exclude sets that have no catalog entry but have concepts loaded (not capped)
+            if ($catalogEntry === null && $count > 0) {
                 continue;
             }
 
@@ -197,7 +202,8 @@ $module->initializeJavascriptModuleObject();
                     </span>
                 </div>
 
-                <table class="pkg-table">
+                <div class="pkg-table-container">
+                    <table class="pkg-table">
                     <thead>
                         <tr>
                             <th style="width: 40px; text-align: center;">
@@ -271,6 +277,7 @@ $module->initializeJavascriptModuleObject();
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+            </div>
             <?php else: ?>
                 <div class="alert alert-warning" style="margin-bottom: 20px;">
                     <h5 style="margin-top: 0;"><i class="fas fa-exclamation-triangle"></i> Database Required</h5>
@@ -286,7 +293,8 @@ $module->initializeJavascriptModuleObject();
                     </span>
                 </div>
 
-                <table class="pkg-table">
+                <div class="pkg-table-container">
+                    <table class="pkg-table">
                     <thead>
                         <tr>
                             <th style="width: 40px; text-align: center;">
@@ -349,6 +357,7 @@ $module->initializeJavascriptModuleObject();
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+            </div>
             <?php endif; ?>
 
             <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
@@ -508,25 +517,39 @@ $module->initializeJavascriptModuleObject();
                                     </td>
                                     <td class="action-col" style="text-align: center; vertical-align: middle;">
                                         <?php 
-                                            $isOver20k = !empty($tvs['is_over_20k']);
-                                            $btnClass = $isOver20k ? 'btn-outline-danger' : 'btn-outline-primary';
-                                            $btnIcon = 'fa-expand-arrows-alt';
-                                            $btnTitle = $isOver20k ? 'Large ValueSet (>20k): Click to review details and expand' : 'Click to review and expand';
+                                            $canExpand = !empty($tvs['catalog_entry']['can_expand']);
+                                            if (!empty($tvs['catalog_entry'])) {
+                                                $tot = $tvs['catalog_entry']['total'] ?? null;
+                                                if (!is_numeric($tot) || (int)$tot > 3000) {
+                                                    $canExpand = false;
+                                                }
+                                            } else {
+                                                $canExpand = false;
+                                            }
                                         ?>
-                                        <button type="button" class="btn btn-xs <?= $btnClass ?> btn-expand-vs"
-                                                data-id="<?= htmlspecialchars((string)$tvs['id'], ENT_QUOTES) ?>"
-                                                data-package="<?= htmlspecialchars((string)$tvs['package'], ENT_QUOTES) ?>"
-                                                data-title="<?= htmlspecialchars((string)$tvs['title'], ENT_QUOTES) ?>"
-                                                data-system="<?= htmlspecialchars((string)($tvs['info_system'] ?? ''), ENT_QUOTES) ?>"
-                                                data-count="<?= htmlspecialchars((string)$tvs['concept_count'], ENT_QUOTES) ?>"
-                                                data-total="<?= htmlspecialchars((string)($cachedTot ?? ''), ENT_QUOTES) ?>"
-                                                data-source="<?= htmlspecialchars((string)($tvs['catalog_entry']['source'] ?? ''), ENT_QUOTES) ?>"
-                                                data-notes="<?= htmlspecialchars((string)($tvs['catalog_entry']['notes'] ?? ''), ENT_QUOTES) ?>"
-                                                data-large="<?= $isOver20k ? '1' : '0' ?>"
-                                                title="<?= $btnTitle ?>"
-                                                style="font-size: 0.72rem; padding: 2px 8px; font-weight: 600; white-space: nowrap;">
-                                            <i class="fas <?= $btnIcon ?>"></i> Expand
-                                        </button>
+                                        <?php if ($canExpand): ?>
+                                            <button type="button" class="btn btn-xs btn-outline-primary btn-expand-vs"
+                                                    data-id="<?= htmlspecialchars((string)$tvs['id'], ENT_QUOTES) ?>"
+                                                    data-package="<?= htmlspecialchars((string)$tvs['package'], ENT_QUOTES) ?>"
+                                                    data-title="<?= htmlspecialchars((string)$tvs['title'], ENT_QUOTES) ?>"
+                                                    data-system="<?= htmlspecialchars((string)($tvs['info_system'] ?? ''), ENT_QUOTES) ?>"
+                                                    data-count="<?= htmlspecialchars((string)$tvs['concept_count'], ENT_QUOTES) ?>"
+                                                    data-total="<?= htmlspecialchars((string)($cachedTot ?? ''), ENT_QUOTES) ?>"
+                                                    data-source="<?= htmlspecialchars((string)($tvs['catalog_entry']['source'] ?? ''), ENT_QUOTES) ?>"
+                                                    data-notes="<?= htmlspecialchars((string)($tvs['catalog_entry']['notes'] ?? ''), ENT_QUOTES) ?>"
+                                                    data-large="0"
+                                                    title="Click to review and expand from tx.fhir.org"
+                                                    style="font-size: 0.72rem; padding: 2px 8px; font-weight: 600; white-space: nowrap;">
+                                                <i class="fas fa-expand-arrows-alt"></i> Expand
+                                            </button>
+                                        <?php else: ?>
+                                            <button type="button" class="btn btn-xs btn-outline-secondary"
+                                                    disabled
+                                                    title="Expansion unavailable: ValueSet exceeds external terminology server limits (>3,000 concepts) or is an unconstrained ontology."
+                                                    style="font-size: 0.72rem; padding: 2px 8px; font-weight: 600; white-space: nowrap; opacity: 0.65; cursor: not-allowed;">
+                                                <i class="fas fa-lock" style="margin-right: 3px;"></i> Locked
+                                            </button>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

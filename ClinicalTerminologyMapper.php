@@ -956,6 +956,21 @@ class ClinicalTerminologyMapper extends AbstractExternalModule
             return ['success' => false, 'error' => "ValueSet '{$id}' not found in package '{$package}'."];
         }
 
+        require_once __DIR__ . '/ValueSetSizeCatalog.php';
+        $cat = \UWMadison\ClinicalTerminologyMapper\ValueSetSizeCatalog::lookup($id, $package, $vs['version'] ?? null);
+        if ($cat !== null && (isset($cat['can_expand']) && !$cat['can_expand'])) {
+            return [
+                'success' => false,
+                'error' => "ValueSet '{$id}' cannot be expanded because it exceeds public FHIR terminology server limits (>3,000 concepts) or represents an unconstrained ontology."
+            ];
+        }
+        if ($cat !== null && is_numeric($cat['total']) && (int)$cat['total'] > 3000) {
+            return [
+                'success' => false,
+                'error' => "ValueSet '{$id}' contains {$cat['total']} concepts, which exceeds tx.fhir.org's 3,000 concept expansion ceiling."
+            ];
+        }
+
         $dbPath = __DIR__ . '/fhir_valuesets.sqlite';
         if (!is_writable($dbPath)) {
             @chmod($dbPath, 0666);

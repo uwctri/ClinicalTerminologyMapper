@@ -175,16 +175,13 @@ function initManagerScript() {
         spinner.style.display = 'inline-block';
         spinner.classList.add('fa-spin');
         icon.style.display = 'none';
-        const actionText = isDbValid ? 'Updating terminology database...' : 'Downloading and building database (approx. 20–60s)...';
-        statusText.innerHTML = '<span style="color:#2563eb;"><i class="fas fa-spinner fa-spin"></i> ' + actionText + '</span>';
+        statusText.innerHTML = '';
 
         try {
             const data = await module.ajax('build_terminology', { packages: pendingSelectedPackages });
 
             if (data && data.success) {
-                const successMsg = isDbValid ? 'Database updated successfully' : 'Build successful';
-                statusText.innerHTML = '<span style="color:#16a34a; font-weight:600;"><i class="fas fa-check-circle"></i> ' + successMsg + ' (' + escapeHtml(data.valueset_count || 0) + ' ValueSets, ' + escapeHtml(data.concept_count || 0) + ' concepts in ' + escapeHtml(data.elapsed_seconds || '') + 's)! Reloading...</span>';
-                setTimeout(() => window.location.reload(), 1500);
+                window.location.reload();
             } else {
                 statusText.innerHTML = '<span style="color:#ef4444; font-weight:600;"><i class="fas fa-times-circle"></i> ' + (isDbValid ? 'Update' : 'Build') + ' failed: ' + escapeHtml((data && data.error) || 'Unknown error') + '</span>';
                 btn.disabled = false;

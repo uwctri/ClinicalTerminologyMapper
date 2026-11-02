@@ -141,9 +141,9 @@ class ValueSetSizeCatalog
             'version' => '4.0.1',
             'total' => 14250,
             'is_exact' => false,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'SNOMED CT Substance & Finding',
-            'notes' => 'SNOMED CT substance and clinical findings (~14,250 concepts)'
+            'notes' => 'SNOMED CT substance and clinical findings (~14,250 concepts; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'doc-typecodes',
@@ -152,9 +152,9 @@ class ValueSetSizeCatalog
             'version' => '4.0.1',
             'total' => 12569,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'LOINC Document Ontology',
-            'notes' => 'LOINC clinical document types (12,569 entries)'
+            'notes' => 'LOINC clinical document types (12,569 entries; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'c80-doc-typecodes',
@@ -163,9 +163,9 @@ class ValueSetSizeCatalog
             'version' => '4.0.1',
             'total' => 12569,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'HITSP C80 / LOINC Document Types',
-            'notes' => 'HITSP C80 document type codes (12,569 entries)'
+            'notes' => 'HITSP C80 document type codes (12,569 entries; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'device-type',
@@ -174,9 +174,9 @@ class ValueSetSizeCatalog
             'version' => '4.0.1',
             'total' => 8420,
             'is_exact' => false,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'SNOMED CT Physical Object',
-            'notes' => 'SNOMED CT medical device hierarchy (~8,420 concepts)'
+            'notes' => 'SNOMED CT medical device hierarchy (~8,420 concepts; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'device-kind',
@@ -185,9 +185,9 @@ class ValueSetSizeCatalog
             'version' => '4.0.1',
             'total' => 8420,
             'is_exact' => false,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'SNOMED CT Physical Object',
-            'notes' => 'SNOMED CT medical devices'
+            'notes' => 'SNOMED CT medical devices (~8,420 concepts; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'all-languages',
@@ -196,9 +196,9 @@ class ValueSetSizeCatalog
             'version' => '4.0.1',
             'total' => 7849,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'ISO 639-1 / 639-2 Registry',
-            'notes' => 'Complete international language registry (7,849 entries)'
+            'notes' => 'Complete international language registry (7,849 entries; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'observation-methods',
@@ -207,9 +207,9 @@ class ValueSetSizeCatalog
             'version' => '4.0.1',
             'total' => 4200,
             'is_exact' => false,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'SNOMED CT Evaluation Procedures',
-            'notes' => 'Clinical measurement techniques (~4,200 concepts; safe to expand)'
+            'notes' => 'Clinical measurement techniques (~4,200 concepts, 1,905 in R4 expansion; exceeds tx.fhir.org 3,000 expansion limit)'
         ],
         [
             'id' => 'animal-breeds',
@@ -530,9 +530,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 14250,
             'is_exact' => false,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'SNOMED CT Substance & Finding',
-            'notes' => 'SNOMED CT substance and clinical findings (~14,250 concepts)'
+            'notes' => 'SNOMED CT substance and clinical findings (~14,250 concepts; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'procedure-code',
@@ -563,9 +563,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 13831,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'WHO ICD-10 Classification',
-            'notes' => 'International Classification of Diseases, 10th Revision (13,831 codes)'
+            'notes' => 'International Classification of Diseases, 10th Revision (13,831 codes; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'all-languages',
@@ -574,9 +574,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 7849,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'ISO 639-1 / 639-2 Registry',
-            'notes' => 'Complete international language code registry'
+            'notes' => 'Complete international language code registry (7,849 entries; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'medicinal-product-classification',
@@ -585,9 +585,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 6996,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'WHO ATC Classification',
-            'notes' => 'Anatomical Therapeutic Chemical Classification System (6,996 codes)'
+            'notes' => 'Anatomical Therapeutic Chemical Classification System (6,996 codes; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'observation-methods',
@@ -596,9 +596,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 4200,
             'is_exact' => false,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'SNOMED CT Evaluation Procedures',
-            'notes' => 'Observation methods (4,200 concepts, 2,015 in R5 expansion)'
+            'notes' => 'Observation methods (~4,200 concepts, 2,015 in R5 expansion; exceeds tx.fhir.org 3,000 expansion limit)'
         ],
         [
             'id' => 'edible-substance-type',
@@ -640,9 +640,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 1776,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'ISO 3166-1 / UN M49 Countries & Regions',
-            'notes' => 'Jurisdiction and country subdivisions (1,776 codes)'
+            'notes' => 'Jurisdiction and country subdivisions (1,776 codes; exceeds tx.fhir.org 3,000 limit with dependencies)'
         ],
         [
             'id' => 'condition-stage-type',
@@ -673,9 +673,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 1006,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'SNOMED CT Clinical Findings',
-            'notes' => 'Reasons food item was not consumed (1,006 concepts)'
+            'notes' => 'Reasons food item was not consumed (1,006 concepts; exceeds tx.fhir.org limit with transitive closure)'
         ],
         [
             'id' => 'referenced-item-category',
@@ -684,9 +684,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 1005,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'SNOMED CT Physical Objects',
-            'notes' => 'Referenced item categories (1,005 concepts)'
+            'notes' => 'Referenced item categories (1,005 concepts; exceeds tx.fhir.org limit with transitive closure)'
         ],
         [
             'id' => 'consent-content-class',
@@ -695,9 +695,9 @@ class ValueSetSizeCatalog
             'version' => '5.0.0',
             'total' => 1002,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'HL7 Consent Content Class',
-            'notes' => 'Consent content classification (1,002 concepts)'
+            'notes' => 'Consent content classification (1,002 concepts; includes doc-typecodes >10,000)'
         ],
         [
             'id' => 'adverse-event-contributing-factor',
@@ -941,9 +941,9 @@ class ValueSetSizeCatalog
             'version' => '3.1.1',
             'total' => 1000,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'HL7 US Core STU 3.1.1 Expansions',
-            'notes' => 'Pre-expanded top 1,000 condition subset in package'
+            'notes' => 'Pre-expanded top 1,000 condition subset in package (US Core IG profile)'
         ],
         [
             'id' => 'us-core-condition-codes',
@@ -952,9 +952,9 @@ class ValueSetSizeCatalog
             'version' => '6.1.0',
             'total' => 1000,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'HL7 US Core STU 6.1.0 Expansions',
-            'notes' => 'Pre-expanded top 1,000 condition subset in package'
+            'notes' => 'Pre-expanded top 1,000 condition subset in package (US Core IG profile)'
         ],
         [
             'id' => 'us-core-non-laboratory-codes',
@@ -963,9 +963,9 @@ class ValueSetSizeCatalog
             'version' => '6.1.0',
             'total' => 1000,
             'is_exact' => true,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'HL7 US Core STU 6.1.0 Expansions',
-            'notes' => 'Pre-expanded top 1,000 procedure/assessment subset in package'
+            'notes' => 'Pre-expanded top 1,000 procedure/assessment subset in package (US Core IG profile)'
         ],
         [
             'id' => 'us-core-encounter-type',
@@ -974,9 +974,9 @@ class ValueSetSizeCatalog
             'version' => '3.1.1',
             'total' => 12569,
             'is_exact' => false,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'CPT & SNOMED Encounter Codes',
-            'notes' => 'Comprehensive encounter classification codes'
+            'notes' => 'Comprehensive encounter classification codes (~12,569 concepts; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'us-core-encounter-type',
@@ -985,9 +985,9 @@ class ValueSetSizeCatalog
             'version' => '6.1.0',
             'total' => 12569,
             'is_exact' => false,
-            'can_expand' => true,
+            'can_expand' => false,
             'source' => 'CPT & SNOMED Encounter Codes',
-            'notes' => 'Comprehensive encounter classification codes'
+            'notes' => 'Comprehensive encounter classification codes (~12,569 concepts; exceeds tx.fhir.org 3,000 limit)'
         ],
         [
             'id' => 'us-core-procedure-code',
@@ -1044,21 +1044,6 @@ class ValueSetSizeCatalog
             'source' => 'Regenstrief LOINC Lab Test Hierarchy',
             'notes' => 'Full LOINC laboratory test inclusion'
         ],
-
-        // ==========================================
-        // Regenstrief LOINC Top Common Subsets (>= 1,000)
-        // ==========================================
-        [
-            'id' => 'top-observations',
-            'url' => 'http://loinc.org/vs/top-observations',
-            'package' => 'LOINC',
-            'version' => null,
-            'total' => 2000,
-            'is_exact' => true,
-            'can_expand' => true,
-            'source' => 'Regenstrief Top 2,000 Common Lab Observations',
-            'notes' => 'Empirically covers ~99% of all routine clinical lab test volume in US health systems'
-        ],
         // ==========================================
         // mCODE - Large & Capped Hybrid Sets
         // ==========================================
@@ -1083,6 +1068,17 @@ class ValueSetSizeCatalog
             'can_expand' => false,
             'source' => 'SNOMED CT + ICD-10-CM',
             'notes' => 'Contains 1,046 explicit ICD-10-CM neoplasm codes (installed) + ~12,000 SNOMED CT concepts (is-a 363346000 Malignant neoplastic disease)'
+        ],
+        [
+            'id' => 'rxnorm-medications',
+            'url' => 'http://www.nlm.nih.gov/research/umls/rxnorm',
+            'package' => 'RxNorm',
+            'version' => null,
+            'total' => 14718,
+            'is_exact' => true,
+            'can_expand' => false,
+            'source' => 'NLM RxNorm (tty=IN)',
+            'notes' => 'Complete normalized generic active drug ingredients from the National Library of Medicine'
         ]
     ];
 

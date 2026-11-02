@@ -627,7 +627,7 @@ class TerminologyBuilderService
 
             require_once __DIR__ . '/ValueSetSizeCatalog.php';
             $cat = ValueSetSizeCatalog::lookup($id, $packageName, $data['version'] ?? $defaultVersion);
-            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 5000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
+            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 3000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
 
             $concepts = [];
             if (!$isLargeSet) {
@@ -878,7 +878,7 @@ class TerminologyBuilderService
                 if ($existingConceptCount === 0) {
                     require_once __DIR__ . '/ValueSetSizeCatalog.php';
                     $cat = ValueSetSizeCatalog::lookup($id, $packageName, $data['version'] ?? $defaultVersion);
-                    $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 5000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
+                    $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 3000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
 
                     $concepts = [];
                     if (!$isLargeSet) {
@@ -984,7 +984,7 @@ class TerminologyBuilderService
 
             require_once __DIR__ . '/ValueSetSizeCatalog.php';
             $cat = ValueSetSizeCatalog::lookup($id, $pkgLabel, $pkgVer);
-            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 5000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
+            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 3000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
 
             $concepts = [];
             if (!$isLargeSet) {
@@ -1079,7 +1079,7 @@ class TerminologyBuilderService
 
             require_once __DIR__ . '/ValueSetSizeCatalog.php';
             $cat = ValueSetSizeCatalog::lookup($id, $pkgLabel, $pkgVer);
-            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 5000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
+            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 3000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
 
             $concepts = [];
             if (!$isLargeSet && !empty($data['expansion']['contains'])) {
@@ -1289,8 +1289,8 @@ class TerminologyBuilderService
             $catalogEntry = ValueSetSizeCatalog::lookup($id, $pkg, $row['version'] ?? null);
             $cachedVal = $catalogEntry !== null ? $catalogEntry['total'] : null;
 
-            // If total is numeric and <= 5000, and current_count differs, auto-expand!
-            if (is_numeric($cachedVal) && (int)$cachedVal <= 5000 && (int)$cachedVal !== $curCount) {
+            // If total is numeric and <= 3000, can expand, and current_count differs, auto-expand!
+            if (is_numeric($cachedVal) && (int)$cachedVal <= 3000 && !empty($catalogEntry['can_expand']) && (int)$cachedVal !== $curCount) {
                 $expandedConcepts = $this->fetchRemoteExpansionConcepts($url, $pkg);
                 if (!empty($expandedConcepts)) {
                     $this->db->beginTransaction();
@@ -1310,8 +1310,14 @@ class TerminologyBuilderService
                     $newCount = count($expandedConcepts);
                     $updVsStmt->execute([$newCount, $id, $pkg]);
                     $this->db->commit();
+                } else {
+                    // Remote expansion failed or was rejected; do not leave a partial subset
+                    $this->db->beginTransaction();
+                    $delStmt->execute([$id, $pkg]);
+                    $updVsStmt->execute([0, $id, $pkg]);
+                    $this->db->commit();
                 }
-            } elseif (!is_numeric($cachedVal) || (int)$cachedVal > 5000 || (isset($catalogEntry['can_expand']) && !$catalogEntry['can_expand'])) {
+            } elseif (!is_numeric($cachedVal) || (int)$cachedVal > 3000 || (isset($catalogEntry['can_expand']) && !$catalogEntry['can_expand'])) {
                 // If we cannot load the full ValueSet, do not load any partial concepts
                 $this->db->beginTransaction();
                 $delStmt->execute([$id, $pkg]);
