@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (res && res.success) {
                 state.defaultValuesets = res.valuesets || [];
             }
-        } catch (e) {}
+        } catch (e) { }
     };
 
     const ensureProjectFields = async () => {
@@ -400,11 +400,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const batchApplyMismatches = async () => {
-        const mismatchedFields = state.fields.filter(f => 
-            !f.is_match && 
-            Boolean(f.selected_preset_id) && 
-            f.selected_preset_id !== '__none__' && 
-            Array.isArray(f.target_concepts) && 
+        const mismatchedFields = state.fields.filter(f =>
+            !f.is_match &&
+            Boolean(f.selected_preset_id) &&
+            f.selected_preset_id !== '__none__' &&
+            Array.isArray(f.target_concepts) &&
             f.target_concepts.length > 0
         );
         if (mismatchedFields.length === 0) {
@@ -448,7 +448,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <i class="fas fa-database fa-3x" style="color: #ef4444; margin-bottom: 16px;"></i>
                         <h3 style="color: #0f172a; margin-bottom: 8px; font-weight: 700;">Terminology Database Not Initialized</h3>
                         <p style="color: #475569; font-size: 0.95rem; line-height: 1.5; margin-bottom: 24px;">
-                            The Clinical Terminology Mapper requires the pre-compiled FHIR & LOINC Terminology Database to align multiple-choice fields. The database has not been initialized on this REDCap system yet.
+                            The Clinical Terminology Mapper requires the pre-compiled Terminology Database to align multiple-choice fields. The database has not been initialized on this REDCap system yet.
                         </p>
                         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; text-align: left; font-size: 0.875rem; color: #334155;">
                             <div style="font-weight: 700; color: #1e3a8a; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
@@ -471,11 +471,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const mismatched = state.loading
             ? 0
-            : state.fields.filter(f => 
-                !f.is_match && 
-                Boolean(f.selected_preset_id) && 
-                f.selected_preset_id !== '__none__' && 
-                Array.isArray(f.target_concepts) && 
+            : state.fields.filter(f =>
+                !f.is_match &&
+                Boolean(f.selected_preset_id) &&
+                f.selected_preset_id !== '__none__' &&
+                Array.isArray(f.target_concepts) &&
                 f.target_concepts.length > 0
             ).length;
 
@@ -531,10 +531,12 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (state.fields.length === 0) {
             tableRows = `
                 <tr>
-                    <td colspan="6" class="cdis-empty-state">
-                        <i class="fas fa-info-circle fa-2x" style="color: #94a3b8; margin-bottom: 8px;"></i>
-                        <p style="margin-bottom: 4px; font-weight: 600; color: #1e293b;">No fields currently in Option Mapper.</p>
-                        <small style="color: #64748b;">Click <strong>Add Field</strong> above to add any text, radio, dropdown, or checkbox field from your project, or configure CDIS mapping in Clinical Data Pull.</small>
+                    <td colspan="6" class="cdis-empty-state-cell">
+                        <div class="cdis-empty-state">
+                            <i class="fas fa-info-circle fa-2x" style="color: #94a3b8; margin-bottom: 8px;"></i>
+                            <p style="margin-bottom: 4px; font-weight: 600; color: #1e293b;">No fields currently in Option Mapper.</p>
+                            <small style="color: #64748b;">Click <strong>Add Field</strong> above to add any text, radio, dropdown, or checkbox field from your project, or configure CDIS mapping in Clinical Data Pull.</small>
+                        </div>
                     </td>
                 </tr>
             `;
@@ -569,14 +571,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 const currentCount = Object.keys(f.current_choices || {}).length;
                 const targetCount = (f.target_concepts || []).length;
                 const { currentTypeLabel, targetTypeLabel } = getFieldTypeLabels(f.element_type, targetCount);
-                const comparisonText = f.is_multiple_choice
-                    ? (f.selected_preset_id ? `${currentCount} &rarr; ${targetCount}` : `${currentCount} &rarr; 0`)
-                    : `Text &rarr; ${targetCount}`;
-                const typeTransition = (f.selected_preset_id && targetCount > 0)
-                    ? (currentTypeLabel.toLowerCase() === targetTypeLabel.toLowerCase()
-                        ? `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(targetTypeLabel)}</div>`
-                        : `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(currentTypeLabel)} &rarr; <strong>${escapeHtml(targetTypeLabel)}</strong></div>`)
-                    : `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(currentTypeLabel)}</div>`;
+                const isUnmapped = !f.selected_preset_id || f.selected_preset_id === '__none__';
+
+                let comparisonText = '';
+                let typeTransition = '';
+
+                if (isUnmapped) {
+                    if (f.is_multiple_choice) {
+                        comparisonText = `${currentCount} ${currentCount === 1 ? 'choice' : 'choices'}`;
+                        typeTransition = `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(currentTypeLabel)}</div>`;
+                    } else {
+                        comparisonText = 'Text';
+                        typeTransition = `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">(unchanged)</div>`;
+                    }
+                } else {
+                    if (f.is_multiple_choice) {
+                        comparisonText = `${currentCount} &rarr; ${targetCount}`;
+                    } else {
+                        comparisonText = `Text &rarr; ${targetCount}`;
+                    }
+                    if (targetCount > 0) {
+                        typeTransition = currentTypeLabel.toLowerCase() === targetTypeLabel.toLowerCase()
+                            ? `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(targetTypeLabel)}</div>`
+                            : `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(currentTypeLabel)} &rarr; <strong>${escapeHtml(targetTypeLabel)}</strong></div>`;
+                    } else {
+                        typeTransition = `<div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(currentTypeLabel)}</div>`;
+                    }
+                }
 
                 const sourceHtml = f.is_custom ? `
                     <span class="badge" style="background: #f1f5f9; color: #475569; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; border: 1px solid #cbd5e1; font-weight: 600;">
@@ -1270,25 +1291,25 @@ document.addEventListener('DOMContentLoaded', () => {
                         Detected Concepts from Pasted FHIR Message (${state.detectedConcepts.length}):
                     </div>
                     ${state.detectedConcepts.map(d => {
-                        const vsBadges = (d.matched_valuesets || []).map(vs => {
-                            const alignBtn = d.matched_redcap_field
-                                ? `<button class="cdis-btn cdis-btn-primary cdis-btn-sm btn-align-detected" data-field="${escapeHtml(d.matched_redcap_field)}" data-vs="${escapeHtml(vs.id)}" data-vs-title="${encodeURIComponent(vs.title || vs.id)}" data-vs-package="${escapeHtml(vs.package || 'FHIR R4')}">
+                const vsBadges = (d.matched_valuesets || []).map(vs => {
+                    const alignBtn = d.matched_redcap_field
+                        ? `<button class="cdis-btn cdis-btn-primary cdis-btn-sm btn-align-detected" data-field="${escapeHtml(d.matched_redcap_field)}" data-vs="${escapeHtml(vs.id)}" data-vs-title="${encodeURIComponent(vs.title || vs.id)}" data-vs-package="${escapeHtml(vs.package || 'FHIR R4')}">
                                      <i class="fas fa-link"></i> Align '${escapeHtml(d.matched_redcap_field)}' to ${escapeHtml(vs.title)}
                                    </button>`
-                                : '';
-                            return `
+                        : '';
+                    return `
                                 <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:4px; padding:4px 0;">
                                     <div><i class="fas fa-book" style="color:#2563eb;"></i> <strong>${escapeHtml(vs.title)}</strong> (<code>${escapeHtml(vs.id)}</code>)</div>
                                     ${alignBtn}
                                 </div>
                             `;
-                        }).join('') || '<div style="color:#94a3b8; font-size:0.8rem;">No exact ValueSet match found</div>';
+                }).join('') || '<div style="color:#94a3b8; font-size:0.8rem;">No exact ValueSet match found</div>';
 
-                        const fieldTag = d.matched_redcap_field
-                            ? `<span class="cdis-badge cdis-badge-success"><i class="fas fa-check"></i> Mapped to '${escapeHtml(d.matched_redcap_field)}'</span>`
-                            : `<span class="cdis-badge cdis-badge-neutral">Unmapped in Project</span>`;
+                const fieldTag = d.matched_redcap_field
+                    ? `<span class="cdis-badge cdis-badge-success"><i class="fas fa-check"></i> Mapped to '${escapeHtml(d.matched_redcap_field)}'</span>`
+                    : `<span class="cdis-badge cdis-badge-neutral">Unmapped in Project</span>`;
 
-                        return `
+                return `
                             <div class="cdis-detected-item">
                                 <div style="flex:1;">
                                     <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
@@ -1302,7 +1323,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
                             </div>
                         `;
-                    }).join('')}
+            }).join('')}
                 </div>
             `;
         }
@@ -1377,11 +1398,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const mismatchedFields = state.fields.filter(f => 
-            !f.is_match && 
-            Boolean(f.selected_preset_id) && 
-            f.selected_preset_id !== '__none__' && 
-            Array.isArray(f.target_concepts) && 
+        const mismatchedFields = state.fields.filter(f =>
+            !f.is_match &&
+            Boolean(f.selected_preset_id) &&
+            f.selected_preset_id !== '__none__' &&
+            Array.isArray(f.target_concepts) &&
             f.target_concepts.length > 0
         );
         const hasRecordsWithData = mismatchedFields.some(f => f.record_count > 0);
@@ -1653,7 +1674,7 @@ document.addEventListener('DOMContentLoaded', () => {
             searchInput.focus();
             try {
                 searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
-            } catch (e) {}
+            } catch (e) { }
             searchInput.addEventListener('input', (e) => {
                 state.addFieldSearchQuery = e.target.value;
                 renderAddFieldModal();

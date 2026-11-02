@@ -625,22 +625,28 @@ class TerminologyBuilderService
 
             $delConcepts->execute([$id, $packageName]);
 
+            require_once __DIR__ . '/ValueSetSizeCatalog.php';
+            $cat = ValueSetSizeCatalog::lookup($id, $packageName, $data['version'] ?? $defaultVersion);
+            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 5000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
+
             $concepts = [];
-            if (!empty($data['expansion']['contains'])) {
-                $this->extractContainsConcepts($data['expansion']['contains'], $concepts);
-            } elseif (!empty($data['compose']['include'])) {
-                foreach ($data['compose']['include'] as $inc) {
-                    $sys = $inc['system'] ?? '';
-                    if (!empty($inc['concept'])) {
-                        foreach ($inc['concept'] as $c) {
-                            $code = (string)($c['code'] ?? '');
-                            if ($code === '') continue;
-                            $concepts[] = [
-                                'system' => $sys,
-                                'code' => $code,
-                                'display' => (string)($c['display'] ?? $code),
-                                'definition' => (string)($c['definition'] ?? '')
-                            ];
+            if (!$isLargeSet) {
+                if (!empty($data['expansion']['contains'])) {
+                    $this->extractContainsConcepts($data['expansion']['contains'], $concepts);
+                } elseif (!empty($data['compose']['include'])) {
+                    foreach ($data['compose']['include'] as $inc) {
+                        $sys = $inc['system'] ?? '';
+                        if (!empty($inc['concept'])) {
+                            foreach ($inc['concept'] as $c) {
+                                $code = (string)($c['code'] ?? '');
+                                if ($code === '') continue;
+                                $concepts[] = [
+                                    'system' => $sys,
+                                    'code' => $code,
+                                    'display' => (string)($c['display'] ?? $code),
+                                    'definition' => (string)($c['definition'] ?? '')
+                                ];
+                            }
                         }
                     }
                 }
@@ -870,15 +876,20 @@ class TerminologyBuilderService
                 $existingConceptCount = (int)$checkConceptsStmt->fetchColumn();
 
                 if ($existingConceptCount === 0) {
-                    $concepts = [];
+                    require_once __DIR__ . '/ValueSetSizeCatalog.php';
+                    $cat = ValueSetSizeCatalog::lookup($id, $packageName, $data['version'] ?? $defaultVersion);
+                    $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 5000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
 
-                    if (!empty($data['expansion']['contains'])) {
-                        $this->extractContainsConcepts($data['expansion']['contains'], $concepts);
-                    } elseif (!empty($data['compose']['include'])) {
-                        foreach ($data['compose']['include'] as $inc) {
-                            $incConcepts = $this->resolveIncludeConcepts($inc, $codeSystems);
-                            foreach ($incConcepts as $ic) {
-                                $concepts[] = $ic;
+                    $concepts = [];
+                    if (!$isLargeSet) {
+                        if (!empty($data['expansion']['contains'])) {
+                            $this->extractContainsConcepts($data['expansion']['contains'], $concepts);
+                        } elseif (!empty($data['compose']['include'])) {
+                            foreach ($data['compose']['include'] as $inc) {
+                                $incConcepts = $this->resolveIncludeConcepts($inc, $codeSystems);
+                                foreach ($incConcepts as $ic) {
+                                    $concepts[] = $ic;
+                                }
                             }
                         }
                     }
@@ -971,14 +982,20 @@ class TerminologyBuilderService
 
             $delConcepts->execute([$id, $pkgLabel]);
 
+            require_once __DIR__ . '/ValueSetSizeCatalog.php';
+            $cat = ValueSetSizeCatalog::lookup($id, $pkgLabel, $pkgVer);
+            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 5000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
+
             $concepts = [];
-            if (!empty($data['expansion']['contains'])) {
-                $this->extractContainsConcepts($data['expansion']['contains'], $concepts);
-            } elseif (!empty($data['compose']['include'])) {
-                foreach ($data['compose']['include'] as $inc) {
-                    $incConcepts = $this->resolveIncludeConcepts($inc, $codeSystems);
-                    foreach ($incConcepts as $ic) {
-                        $concepts[] = $ic;
+            if (!$isLargeSet) {
+                if (!empty($data['expansion']['contains'])) {
+                    $this->extractContainsConcepts($data['expansion']['contains'], $concepts);
+                } elseif (!empty($data['compose']['include'])) {
+                    foreach ($data['compose']['include'] as $inc) {
+                        $incConcepts = $this->resolveIncludeConcepts($inc, $codeSystems);
+                        foreach ($incConcepts as $ic) {
+                            $concepts[] = $ic;
+                        }
                     }
                 }
             }
@@ -1060,8 +1077,12 @@ class TerminologyBuilderService
                 ':status' => $data['status'] ?? 'active'
             ]);
 
+            require_once __DIR__ . '/ValueSetSizeCatalog.php';
+            $cat = ValueSetSizeCatalog::lookup($id, $pkgLabel, $pkgVer);
+            $isLargeSet = ($cat !== null && (!is_numeric($cat['total']) || (int)$cat['total'] > 5000 || (isset($cat['can_expand']) && !$cat['can_expand'])));
+
             $concepts = [];
-            if (!empty($data['expansion']['contains'])) {
+            if (!$isLargeSet && !empty($data['expansion']['contains'])) {
                 $this->extractContainsConcepts($data['expansion']['contains'], $concepts);
             }
 
@@ -1213,6 +1234,8 @@ class TerminologyBuilderService
 
     private function autoExpandCappedValuesets(?array $packagesToFilter = null): void
     {
+        require_once __DIR__ . '/ValueSetSizeCatalog.php';
+
         // Materialize current counts to find candidates
         $this->db->exec("
             UPDATE valuesets 
@@ -1223,11 +1246,19 @@ class TerminologyBuilderService
             );
         ");
 
-        $sql = "SELECT id, package, url, version, concept_count FROM valuesets WHERE concept_count >= 1000";
+        $catalogCandidates = ValueSetSizeCatalog::getAllEntries();
+        $candidateIds = array_unique(array_column($catalogCandidates, 'id'));
+
+        $sql = "SELECT id, package, url, version, concept_count FROM valuesets WHERE (concept_count >= 1000";
+        if (!empty($candidateIds)) {
+            $inList = "'" . implode("','", array_map(fn($id) => addslashes($id), $candidateIds)) . "'";
+            $sql .= " OR (id IN ({$inList}) AND concept_count > 0)";
+        }
+        $sql .= ")";
         $params = [];
         if (!empty($packagesToFilter)) {
             $placeholders = implode(',', array_fill(0, count($packagesToFilter), '?'));
-            $sql .= " AND package IN ({$placeholders})";
+            $sql = "SELECT * FROM ({$sql}) WHERE package IN ({$placeholders})";
             $params = array_values($packagesToFilter);
         }
         $sql .= " ORDER BY concept_count DESC";
@@ -1239,8 +1270,6 @@ class TerminologyBuilderService
         if (empty($candidates)) {
             return;
         }
-
-        require_once __DIR__ . '/ValueSetSizeCatalog.php';
 
         $cStmt = $this->db->prepare("
             INSERT INTO concepts (valueset_id, package, system, code, display, definition, sort_order)
@@ -1282,6 +1311,12 @@ class TerminologyBuilderService
                     $updVsStmt->execute([$newCount, $id, $pkg]);
                     $this->db->commit();
                 }
+            } elseif (!is_numeric($cachedVal) || (int)$cachedVal > 5000 || (isset($catalogEntry['can_expand']) && !$catalogEntry['can_expand'])) {
+                // If we cannot load the full ValueSet, do not load any partial concepts
+                $this->db->beginTransaction();
+                $delStmt->execute([$id, $pkg]);
+                $updVsStmt->execute([0, $id, $pkg]);
+                $this->db->commit();
             }
         }
     }

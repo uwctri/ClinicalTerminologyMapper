@@ -300,12 +300,7 @@ $module->initializeJavascriptModuleObject();
                         <?php 
                         $initialDefaults = [
                             'FHIR R4',
-                            'US Core v3.1.1',
-                            'US Core v5.0.1',
-                            'US Core v6.1.0',
-                            'US Core v7.0.0',
-                            'US Core v8.0.0',
-                            'US Core v9.0.0'
+                            'US Core v3.1.1'
                         ];
                         foreach ($allPackages as $pkgName => $pkgMeta): 
                             $isChecked = in_array($pkgName, $initialDefaults, true);
